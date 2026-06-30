@@ -1,6 +1,6 @@
-#include <chrono>
 // Extropian Simulator — main entry point
 #include <chrono>
+
 #include <exd/app/application.hpp>
 #include <exd/app/mode.hpp>
 #include <exd/app/system_graph.hpp>
@@ -46,6 +46,31 @@ protected:
             math::Vec3f{1.0f, 1.0f, 1.0f});
         reg.emplace<render::Camera>(cam);
         reg.emplace<render::CameraController>(cam);
+        reg.emplace<render::ReadOnly>(cam);
+
+        // ── CubeMap skybox ──
+        auto sky = reg.create("Skybox");
+        reg.emplace<render::CubeMapComponent>(sky, std::string("10"), true);
+        reg.emplace<render::RenderTechnique_CubeMap>(sky);
+        reg.emplace<render::Disabled>(sky); // hide until loaded
+
+        // ── F117 mesh (reflective) ──
+        auto f117 = reg.create("F117");
+        reg.emplace<render::MeshAssetComponent>(f117, std::string("assets/models/F117/F117.stl"));
+        reg.emplace<render::RenderTechnique_Mirror>(f117);
+        reg.emplace<render::Transform>(f117,
+            math::Vec3f{0.0f, 80.0f, 0.0f},
+            math::Quat{1.0f, 0.0f, 0.0f, 0.0f},
+            math::Vec3f{1.0f, 1.0f, 1.0f});
+
+        // ── Wind tunnel domain box ──
+        auto domain = reg.create("WindTunnel Box");
+        reg.emplace<render::SimulationDomain>(domain, 250, 80, 128);
+        reg.emplace<render::Transform>(domain,
+            math::Vec3f{-20.0f, 80.0f, 0.0f},
+            math::Quat{1.0f, 0.0f, 0.0f, 0.0f},
+            math::Vec3f{1.0f, 1.0f, 1.0f});
+        reg.emplace<render::RenderTechnique_Lambertian>(domain);
 
         // ── Grid ──
         auto grid = reg.create("Grid");
@@ -54,23 +79,31 @@ protected:
         reg.emplace<render::Transform>(grid);
         reg.emplace<render::RenderTechnique_Lambertian>(grid);
 
-        std::printf("[Simulator] Scene initialized: camera + grid.\n");
+        std::printf("[Simulator] Scene: camera, skybox, F117, wind tunnel box, grid.\n");
     }
 
     void on_register_systems(app::SystemGraph& graph) override {
         auto* win = &this->window();
 
-        // Always-on systems
+        // Setup mode: load assets
+        graph.add<render::CubeMapSystem>(gfx, win).in_mode(SimMode::Setup);
+        graph.add<render::MeshAssetSystem>(gfx, win).in_mode(SimMode::Setup);
+        graph.add<render::PrimitiveMeshSystem>(gfx, win).in_mode(SimMode::Setup);
+
+        // Always-on: render + camera + grid
         graph.add<render::RenderSystem>(gfx, win).always();
         graph.add<render::CameraSystem>(win).always();
-        graph.add<render::PolygonModeSystem>(win).always();
         graph.add<render::GridSystem>(gfx, win).always();
+        graph.add<render::PolygonModeSystem>(win).always();
 
         graph.build();
     }
 
+    void on_load_ui(app::IUIHost&) override {
+        // UI loading will be added when RmlUi is enabled
+    }
+
     void on_update(double) override {
-        // FPS display every 60 frames
         static int frame = 0;
         static auto last = std::chrono::steady_clock::now();
         if (++frame % 60 == 0) {
@@ -83,10 +116,6 @@ protected:
 
     void on_mode_changed(int from, int to) override {
         std::printf("[Simulator] Mode: %d -> %d\n", from, to);
-    }
-
-    void on_load_ui(app::IUIHost&) override {
-        // UI disabled for headless first build
     }
 };
 
