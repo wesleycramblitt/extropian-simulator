@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(extropian-simulator VERSION 0.1.0 LANGUAGES CXX
+project(extropian-simulator VERSION 0.1.0 LANGUAGES C CXX
     DESCRIPTION "Extropian Simulator: full scientific simulation workflow"
 )
 
