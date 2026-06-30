@@ -9,36 +9,48 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include(FetchContent)
 
 # ── Dependencies: fetch all Extropian libraries from GitHub ───
-# Set FETCHCONTENT_SOURCE_DIR_* to use local checkouts instead of fetching.
-# build.sh does this automatically.
+# Libraries check `if(NOT TARGET exd::*)` internally, so local overrides
+# set by build.sh via FETCHCONTENT_SOURCE_DIR_* take precedence.
 
-FetchContent_Declare(exd-core
-    GIT_REPOSITORY https://github.com/wesleycramblitt/extropian-core.git
-    GIT_TAG main
-)
-FetchContent_Declare(exd-render
-    GIT_REPOSITORY https://github.com/wesleycramblitt/extropian-render.git
-    GIT_TAG main
-)
-FetchContent_Declare(exd-app
-    GIT_REPOSITORY https://github.com/wesleycramblitt/extropian-app.git
-    GIT_TAG main
-)
-FetchContent_Declare(exd-physics
-    GIT_REPOSITORY https://github.com/wesleycramblitt/extropian-physics.git
-    GIT_TAG main
-)
-FetchContent_Declare(exd-solver-fluidx3d
-    GIT_REPOSITORY https://github.com/wesleycramblitt/extropian-solver-fluidx3d.git
-    GIT_TAG main
-)
+if(NOT TARGET exd::core)
+    FetchContent_Declare(exd-core
+        GIT_REPOSITORY https://github.com/wesleycramblitt/extropian-core.git
+        GIT_TAG main
+    )
+    FetchContent_MakeAvailable(exd-core)
+endif()
 
-# Make all available (in dependency order)
-FetchContent_MakeAvailable(exd-core)
-FetchContent_MakeAvailable(exd-render)
-FetchContent_MakeAvailable(exd-app)
-FetchContent_MakeAvailable(exd-physics)
-FetchContent_MakeAvailable(exd-solver-fluidx3d)
+if(NOT TARGET exd::render)
+    FetchContent_Declare(exd-render
+        GIT_REPOSITORY https://github.com/wesleycramblitt/extropian-render.git
+        GIT_TAG main
+    )
+    FetchContent_MakeAvailable(exd-render)
+endif()
+
+if(NOT TARGET exd::app)
+    FetchContent_Declare(exd-app
+        GIT_REPOSITORY https://github.com/wesleycramblitt/extropian-app.git
+        GIT_TAG main
+    )
+    FetchContent_MakeAvailable(exd-app)
+endif()
+
+if(NOT TARGET exd::physics)
+    FetchContent_Declare(exd-physics
+        GIT_REPOSITORY https://github.com/wesleycramblitt/extropian-physics.git
+        GIT_TAG main
+    )
+    FetchContent_MakeAvailable(exd-physics)
+endif()
+
+if(NOT TARGET exd::solver::fluidx3d)
+    FetchContent_Declare(exd-solver-fluidx3d
+        GIT_REPOSITORY https://github.com/wesleycramblitt/extropian-solver-fluidx3d.git
+        GIT_TAG main
+    )
+    FetchContent_MakeAvailable(exd-solver-fluidx3d)
+endif()
 
 # Find system packages
 find_package(OpenGL REQUIRED)
