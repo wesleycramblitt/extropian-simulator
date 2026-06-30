@@ -71,9 +71,14 @@ target_link_libraries(ExtropianSimulator PRIVATE
     # exd::solver::fluidx3d  — disabled, requires FluidX3D-CLI
 )
 
-# Copy assets to build directory
+# Copy assets and shaders to build directory
 add_custom_command(TARGET ExtropianSimulator POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${CMAKE_SOURCE_DIR}/assets
         $<TARGET_FILE_DIR:ExtropianSimulator>/assets
+)
+add_custom_command(TARGET ExtropianSimulator POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${exd-render_SOURCE_DIR}/shaders
+        $<TARGET_FILE_DIR:ExtropianSimulator>/shaders
 )
