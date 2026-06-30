@@ -1,4 +1,6 @@
+#include <chrono>
 // Extropian Simulator — main entry point
+#include <chrono>
 #include <exd/app/application.hpp>
 #include <exd/app/mode.hpp>
 #include <exd/app/system_graph.hpp>
