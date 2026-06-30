@@ -34,7 +34,7 @@ protected:
     void on_setup(exd::ecs::Registry& registry) override {
         // ── Camera ──
         auto cam = registry.create("Camera");
-        registry.emplace<render::Transform>(cam, math::Vec3{0, 45, 200});
+        registry.emplace<render::Transform>(cam, math::Vec3f{0, 45, 200});
         registry.emplace<render::Camera>(cam);
         registry.emplace<render::CameraController>(cam);
         registry.emplace<render::ReadOnly>(cam);
@@ -58,7 +58,7 @@ protected:
         // ── Domain box ──
         auto domain = registry.create("DomainBox");
 //        registry.emplace<solver::fluidx3d::SimulationDomain>(domain, 250, 80, 128);
-        registry.emplace<render::Transform>(domain, math::Vec3{-20, 80, 0});
+        registry.emplace<render::Transform>(domain, math::Vec3f{-20, 80, 0});
         registry.emplace<render::RenderTechnique_Lambertian>(domain);
 //        registry.emplace<solver::fluidx3d::SimulationReference>(domain, sim.id);
 
