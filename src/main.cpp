@@ -3,6 +3,7 @@
 #include <exd/app/mode.hpp>
 #include <exd/app/system_graph.hpp>
 #include <exd/app/window.hpp>
+#include <exd/app/ui_host.hpp>
 
 #include <exd/render/systems.hpp>
 #include <exd/render/graphics_context.hpp>
@@ -80,6 +81,10 @@ protected:
 
     void on_mode_changed(int from, int to) override {
         std::printf("[Simulator] Mode: %d -> %d\n", from, to);
+    }
+
+    void on_load_ui(app::IUIHost&) override {
+        // UI disabled for headless first build
     }
 };
 
