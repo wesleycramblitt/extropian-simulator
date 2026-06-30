@@ -44,14 +44,11 @@ if(NOT TARGET exd::physics)
     FetchContent_MakeAvailable(exd-physics)
 endif()
 
-# Solver disabled (requires FluidX3D-CLI)
-if(FALSE) // if(NOT TARGET #exd::solver::fluidx3d)
-#    FetchContent_Declare(exd-solver-fluidx3d
-#        GIT_REPOSITORY https://github.com/wesleycramblitt/extropian-solver-fluidx3d.git
-#        GIT_TAG main
-#    )
-#    FetchContent_MakeAvailable(exd-solver-fluidx3d)
-#endif()
+# Solver disabled: requires FluidX3D-CLI (external dependency)
+# if(NOT TARGET exd::solver::fluidx3d)
+#     FetchContent_Declare(exd-solver-fluidx3d ...)
+#     FetchContent_MakeAvailable(exd-solver-fluidx3d)
+# endif()
 
 # Find system packages
 find_package(OpenGL REQUIRED)
@@ -71,7 +68,7 @@ target_link_libraries(ExtropianSimulator PRIVATE
     exd::render
     exd::app
     exd::physics
-    #exd::solver::fluidx3d
+    # exd::solver::fluidx3d  — disabled, requires FluidX3D-CLI
 )
 
 # Copy assets to build directory
