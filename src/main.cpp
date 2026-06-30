@@ -6,8 +6,8 @@
 #include <exd/render/graphics_context.hpp>
 #include <exd/render/components.hpp>
 #include <exd/ecs/registry.hpp>
-#include <exd/solver/fluidx3d/fluidx3d_system.hpp>
-#include <exd/solver/fluidx3d/components.hpp>
+// Solver disabled: #include <exd/solver/fluidx3d/fluidx3d_system.hpp>
+// Solver disabled: #include <exd/solver/fluidx3d/components.hpp>
 
 using namespace exd;
 
@@ -46,31 +46,31 @@ protected:
 
         // ── Simulation entity ──
         auto sim = registry.create("WindTunnel");
-        registry.emplace<solver::fluidx3d::FluidX3DSolverConfig>(sim);
-        auto& phys = registry.emplace<solver::fluidx3d::FluidPhysics>(sim,
+//        registry.emplace<solver::fluidx3d::FluidX3DSolverConfig>(sim);
+//        auto& phys = registry.emplace<solver::fluidx3d::FluidPhysics>(sim,
             0.02f,   // viscosity
             0.15f,   // streamwise velocity
             0,       // X-axis flow
             0, 0, 0  // volume forces
         );
-        auto& info = registry.emplace<solver::fluidx3d::SimulationInfo>(sim);
+//        auto& info = registry.emplace<solver::fluidx3d::SimulationInfo>(sim);
 
         // ── Domain box ──
         auto domain = registry.create("DomainBox");
-        registry.emplace<solver::fluidx3d::SimulationDomain>(domain, 250, 80, 128);
+//        registry.emplace<solver::fluidx3d::SimulationDomain>(domain, 250, 80, 128);
         registry.emplace<render::Transform>(domain, math::Vec3{-20, 80, 0});
         registry.emplace<render::RenderTechnique_Lambertian>(domain);
-        registry.emplace<solver::fluidx3d::SimulationReference>(domain, sim.id);
+//        registry.emplace<solver::fluidx3d::SimulationReference>(domain, sim.id);
 
         // ── Volume field ──
         auto vol = registry.create("Volume");
-        registry.emplace<solver::fluidx3d::VolumeField>(vol);
-        registry.emplace<solver::fluidx3d::SimulationReference>(vol, sim.id);
+//        registry.emplace<solver::fluidx3d::VolumeField>(vol);
+//        registry.emplace<solver::fluidx3d::SimulationReference>(vol, sim.id);
 
         // ── Particle cloud ──
         auto particles = registry.create("Particles");
-        registry.emplace<solver::fluidx3d::ParticleCloud>(particles);
-        registry.emplace<solver::fluidx3d::SimulationReference>(particles, sim.id);
+//        registry.emplace<solver::fluidx3d::ParticleCloud>(particles);
+//        registry.emplace<solver::fluidx3d::SimulationReference>(particles, sim.id);
     }
 
     void on_register_systems(app::SystemGraph& graph) override {
@@ -88,7 +88,7 @@ protected:
         graph.add<render::CameraSystem>().always();
 
         // Simulate mode systems
-        graph.add<solver::fluidx3d::FluidX3DSystem>(ctx_).in_mode(SimMode::Simulate);
+//        graph.add<solver::fluidx3d::FluidX3DSystem>(ctx_).in_mode(SimMode::Simulate);
 
         graph.build();
     }
