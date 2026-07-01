@@ -53,6 +53,15 @@ protected:
         reg.emplace<render::CubeMapComponent>(sky, std::string("10"), true);
         reg.emplace<render::RenderTechnique_CubeMap>(sky);
 
+        // ── F117 mesh (reflective) ──
+        auto f117 = reg.create("F117");
+        reg.emplace<render::MeshAssetComponent>(f117, std::string("assets/models/F117/F117.stl"));
+        reg.emplace<render::RenderTechnique_Mirror>(f117);
+        reg.emplace<render::Transform>(f117,
+            math::Vec3f{0.0f, 80.0f, 0.0f},
+            math::Quat{1.0f, 0.0f, 0.0f, 0.0f},
+            math::Vec3f{1.0f, 1.0f, 1.0f});
+
         // ── Wind tunnel domain box (wireframe cube showing bounds) ──
         auto domain = reg.create("WindTunnel Box");
         reg.emplace<render::SimulationDomain>(domain, 250, 80, 128);
