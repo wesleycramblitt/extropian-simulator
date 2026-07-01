@@ -77,9 +77,9 @@ protected:
         auto* win = &this->window();
 
         // Setup mode: load assets
-        graph.add<render::CubeMapSystem>(gfx, win).in_mode(SimMode::Setup);
-        graph.add<render::MeshAssetSystem>(gfx, win).in_mode(SimMode::Setup);
-        graph.add<render::PrimitiveMeshSystem>(gfx, win).in_mode(SimMode::Setup);
+        graph.add<render::CubeMapSystem>(gfx, win).always();
+        graph.add<render::MeshAssetSystem>(gfx, win).always();
+        graph.add<render::PrimitiveMeshSystem>(gfx, win).always();
 
         // Always-on: render + camera + grid
         graph.add<render::RenderSystem>(gfx, win).always();
