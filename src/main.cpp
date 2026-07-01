@@ -56,7 +56,7 @@ protected:
         // ── Wind tunnel domain box (wireframe cube showing bounds) ──
         auto domain = reg.create("WindTunnel Box");
         reg.emplace<render::SimulationDomain>(domain, 250, 80, 128);
-        reg.emplace<render::CubePrimitive>(domain, 50.0f); // approximate size
+        reg.emplace<render::CubePrimitive>(domain, 200.0f); // large cube to match domain
         reg.emplace<render::Transform>(domain,
             math::Vec3f{-20.0f, 80.0f, 0.0f},
             math::Quat{1.0f, 0.0f, 0.0f, 0.0f},
