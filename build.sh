@@ -8,11 +8,13 @@ echo "=== Extropian Simulator Build ==="
 
 # Detect all sibling repos for local development (avoids re-fetching from GitHub)
 LOCAL_FLAGS=""
-for lib in extropian-core extropian-render extropian-app extropian-physics extropian-solver-fluidx3d; do
+for lib in extropian-core extropian-render extropian-app extropian-physics extropian-geometry extropian-spatial-ui; do
     local_path="${ROOT}/../${lib}"
     if [ -d "$local_path" ]; then
         echo "  Using local checkout: $lib"
-        name=$(echo "$lib" | sed 's/extropian-/exd-/')
+        # FetchContent looks up FETCHCONTENT_SOURCE_DIR_<NAME> with NAME
+        # uppercased, so map extropian-foo -> EXD-FOO.
+        name=$(echo "$lib" | sed 's/extropian-/exd-/' | tr '[:lower:]' '[:upper:]')
         LOCAL_FLAGS="${LOCAL_FLAGS} -DFETCHCONTENT_SOURCE_DIR_${name}=${local_path}"
     fi
 done

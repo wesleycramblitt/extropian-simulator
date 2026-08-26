@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 project(extropian-simulator VERSION 0.1.0 LANGUAGES C CXX
-    DESCRIPTION "Extropian Simulator: full scientific simulation workflow"
+    DESCRIPTION "Extropian Simulator: simulation environment builder"
 )
 
 set(CMAKE_CXX_STANDARD 23)
@@ -8,10 +8,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(FetchContent)
 
-# ── Dependencies: fetch all Extropian libraries from GitHub ───
-# Libraries check `if(NOT TARGET exd::*)` internally, so local overrides
-# set by build.sh via FETCHCONTENT_SOURCE_DIR_* take precedence.
+# extropian-core builds doctest-based unit tests by default; doctest 2.4.x
+# is incompatible with CMake >= 4.0, so disable the dependency's tests.
+set(EXT_CORE_BUILD_TESTS OFF CACHE BOOL "Build extropian-core tests" FORCE)
 
+# ── Dependencies: fetch all Extropian libraries from GitHub ───
+# Libraries check `if(NOT TARGET exd::*)` internally, so local sibling
+# checkouts set by build.sh via FETCHCONTENT_SOURCE_DIR_<NAME> (uppercase,
+# e.g. EXD-RENDER) take precedence when present.
 if(NOT TARGET exd::core)
     FetchContent_Declare(exd-core
         GIT_REPOSITORY https://github.com/wesleycramblitt/extropian-core.git
@@ -44,21 +48,23 @@ if(NOT TARGET exd::physics)
     FetchContent_MakeAvailable(exd-physics)
 endif()
 
-# Solver disabled: requires FluidX3D-CLI (external dependency)
-# if(NOT TARGET exd::solver::fluidx3d)
-#     FetchContent_Declare(exd-solver-fluidx3d ...)
-#     FetchContent_MakeAvailable(exd-solver-fluidx3d)
-# endif()
+if(NOT TARGET exd::geometry)
+    FetchContent_Declare(exd-geometry
+        GIT_REPOSITORY https://github.com/wesleycramblitt/extropian-geometry.git
+        GIT_TAG main
+    )
+    FetchContent_MakeAvailable(exd-geometry)
+endif()
 
-# Find system packages
-find_package(OpenGL REQUIRED)
-find_package(OpenCL QUIET)
+# Dear ImGui is provided by exd-render (imgui::imgui, with the
+# ImGuiSystem + ImGuiPanelComponent in exd/render/systems/).
 
 # ── Executable ────────────────────────────────────────
 add_executable(ExtropianSimulator
     src/main.cpp
     src/simulator_app.cpp
     src/modes.cpp
+    src/turbine_system.cpp
 )
 
 target_include_directories(ExtropianSimulator PRIVATE src)
@@ -68,7 +74,7 @@ target_link_libraries(ExtropianSimulator PRIVATE
     exd::render
     exd::app
     exd::physics
-    # exd::solver::fluidx3d  — disabled, requires FluidX3D-CLI
+    exd::geometry
 )
 
 # Copy assets and shaders to build directory
