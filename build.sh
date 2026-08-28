@@ -8,7 +8,8 @@ echo "=== Extropian Simulator Build ==="
 
 # Detect all sibling repos for local development (avoids re-fetching from GitHub)
 LOCAL_FLAGS=""
-for lib in extropian-core extropian-render extropian-app extropian-physics extropian-geometry extropian-spatial-ui; do
+for lib in extropian-core extropian-render extropian-app extropian-physics \
+           extropian-geometry extropian-optimization extropian-spatial-ui; do
     local_path="${ROOT}/../${lib}"
     if [ -d "$local_path" ]; then
         echo "  Using local checkout: $lib"
@@ -30,4 +31,6 @@ echo "  Building..."
 cmake --build "$BUILD_DIR" --parallel "$(nproc)"
 
 echo "=== Build complete ==="
-echo "  Executable: ${BUILD_DIR}/ExtropianSimulator"
+echo "  Demos: ${BUILD_DIR}/extropian-sim-turbine"
+echo "         ${BUILD_DIR}/extropian-sim-optimize"
+echo "  Test:  ${BUILD_DIR}/optimization_test"

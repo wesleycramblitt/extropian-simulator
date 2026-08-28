@@ -1,0 +1,144 @@
+# AGENTS.md — extropian-simulator
+
+Guide for AI coding agents and human contributors working in this repository.
+**These standards are binding**: contributions that violate them will be rejected.
+
+## What this repo is
+
+The **`exd::sim` library** (ECS-based simulation systems) plus **demos** that show
+researchers how to compose systems into applications. The product model: researchers
+build their own apps against this library, registering systems into an ECS
+`SystemGraph` — "plug and play" by manipulating the ECS. The demo executables are
+the copyable templates for that. Longer-term product vision: `docs/architecture.md`.
+
+```
+include/exd/sim/           public library headers (exd::sim namespace)
+include/exd/sim/components/  ECS components (plain data structs)
+src/                       exd::sim implementation (.cpp files)
+demos/common/              DemoApp host shell (window + render pipeline + ImGui)
+demos/<name>/              one demo executable per registration example
+```
+
+**No assets live in this repo.** Media (cubemaps, meshes, fonts, HDRIs, …) lives in
+`extropian-assets` and is fetched from GitHub at configure time
+(`FetchContent`), then copied next to each demo binary at build time.
+Never add asset directories here — add them to `extropian-assets` and to the
+`EXD_SIM_DEMO_ASSET_DIRS` list in `demos/CMakeLists.txt`.
+
+Build: `./build.sh` → binaries in `build/`:
+- `build/extropian-sim-turbine`   — single-system registration (minimal template)
+- `build/extropian-sim-optimize`  — multi-system composition (reference for coupling)
+- `build/optimization_test`       — headless CLI test (CMA-ES objective)
+
+Run: `./run.sh [demo]` (default: optimize). `Z` toggles fly camera / UI mode.
+
+## Ecosystem ownership (where code belongs)
+
+This repo is application-layer *simulation systems and demos only*. Use the
+other extropian repos for their purposes and do not reimplement them here:
+
+| Concern | Repo |
+|---|---|
+| Rendering, graphics context, render systems, components, ImGui host | `extropian-render` |
+| Assets / media (cubemaps, meshes, fonts, hdri, …) | `extropian-assets` |
+| Physics solvers, solver plugin interface, fields/BCs | `extropian-physics` |
+| Geometry: turbine blades, hubs, primitives, mesh ops | `extropian-geometry` |
+| Optimization: CMA-ES, NSGA-II, Nelder-Mead, … | `extropian-optimization` |
+| ECS core, math, config, window state | `extropian-core` |
+| Application shell (SDL3/OpenGL window + loop) | `extropian-app` |
+
+The exd libraries (except `extropian-assets`) are sibling repos fetched via
+FetchContent; `build.sh` overrides them with **local checkouts** when present
+under `../`. `extropian-assets` is the exception: it is always fetched from
+GitHub (content-only repo, no local-sibling override).
+
+## ECS standards (MUST follow)
+
+1. **Components are data, not logic.** Plain structs that satisfy the
+   `exd::ecs::Component` concept: trivially movable, trivially destructible,
+   no owning pointers, no `std::string`/`std::vector` members. If a component
+   needs heap data, it must be a *document component* on a slow entity — see
+   `docs/architecture.md` §1.1 — not a hot-path component (this is not currently
+   used; do not add one without updating this guide).
+
+2. **Systems are logic, not data.** Systems mutate only the registry. All
+   inter-system communication goes through **components on shared entities** —
+   never raw pointers to other systems, never getters like
+   `mutable_params()`, never `set_other_system()` wiring. The ONLY way to drive
+   another system is: find its entity by component (`registry.view<T>()`,
+   first match wins) and write the component. System-local ephemeral state
+   (dirty snapshots, spin accumulators, optimizer handles) is fine as private
+   members — it just is not a cross-system API.
+
+3. **Own your entities.** A system creates its entities lazily in
+   `ensure_entities(registry)` on the first `update()` (see `TurbineSystem`
+   for the canonical pattern). Panels are their own entities carrying
+   `render::ImGuiPanelComponent` — the ImGui host draws one window per such
+   entity automatically. Entity names must be unique and descriptive
+   (`"Turbine"`, `"TurbinePanel"`, `"OptimizationStudy"`, `"OptimizationPanel"`).
+
+4. **Registry is single-threaded.** It belongs to the app (main thread).
+   Structural mutation (create/destroy/emplace/remove) during a `view().each()`
+   iteration goes through `ecs::CommandBuffer` — never inline.
+
+5. **Keep system-local state private.** What changes to a component enter the
+   registry; what changes to a system (e.g. `running_`, `spin_deg_`) stay
+   private members.
+
+## SystemGraph usage (MUST)
+
+- All systems run through `exd::ecs::SystemGraph` phases:
+  `Input` (CameraSystem) → `Simulation` (sim systems;
+  **insertion order = execution order**) → `RenderPreparation`
+  (cubemap/polygon/primitive) → `Render` (RenderSystem, then ImGuiSystem).
+- Sim systems register in `SystemPhase::Simulation`. Within that phase, order
+  is load-bearing: e.g. `OptimizationSystem` must be added *before*
+  `TurbineSystem` so it writes `TurbineSpec` before the turbine consumes it.
+- Demo apps register sim systems in `DemoApp::register_sim_systems(graph)`.
+  The render pipeline is owned by the host shell — do not reorder it.
+
+## Component ownership map (current)
+
+| Component | Lives on | Written by | Read by |
+|---|---|---|---|
+| `TurbineSpec` | `"Turbine"` | TurbineSystem panel, OptimizationSystem | TurbineSystem |
+| `OptimizationConfig` | `"OptimizationStudy"` | OptimizationSystem panel | OptimizationSystem |
+| `FitnessRecord` | `"OptimizationStudy"` | OptimizationSystem | panels, future post-processing |
+
+## How to add a system (the researcher workflow this repo serves)
+
+1. Add component(s) to `include/exd/sim/components/` (POD, documented
+   writers/readers/entity).
+2. Add `include/exd/sim/<name>_system.hpp` + `src/<name>_system.cpp`:
+   `ISystem` subclass, `ensure_entities` pattern, inputs via views, outputs
+   via registry writes, optional self-registered panel.
+3. Add the `.cpp` to the `exd-sim` target in `CMakeLists.txt`.
+4. Add a demo in `demos/<name>/` (new directory + `main.cpp` subclassing
+   `DemoApp`, registering the system; see `demos/turbine` for the minimal
+   shape), and add the executable + asset-copy entry in `demos/CMakeLists.txt`.
+5. Update the component ownership map above.
+
+## Conventions
+
+- Namespace `exd::sim`; headers under `include/exd/sim/`; consumers include
+  `<exd/sim/...>` only (library boundary).
+- C++23. POD structs for components with default-member initializers.
+- `std::printf` lifecycle diagnostics (`[Turbine]`, `[Optimization]`,
+  `[DemoApp]`) — consistent with the existing codebase.
+- Pure physics/numerics go in anonymous namespaces inside `.cpp` files so they
+  stay testable without ECS/GPU (see `src/optimization_system.cpp`).
+
+## Testing
+
+- `optimization_test` reproduces the objective standalone (links
+  `exd::optimization` only). Keep pure logic extracted from systems so it can
+  be tested headlessly.
+- After changes: `./build.sh`, then run both demos briefly and `./build/optimization_test`.
+
+## Touch rules
+
+- **Do not** reintroduce cross-system raw pointers or setter-based wiring —
+  including in demo code, which is the documented teaching surface.
+- **Do not** move sim systems into the host shell or into an app executable;
+  `exd::sim` is the library, demos are thin registration layers.
+- When a change touches this guide, update it in the same commit.

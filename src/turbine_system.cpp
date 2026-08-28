@@ -1,4 +1,7 @@
-#include "turbine_system.hpp"
+// TurbineSystem implementation — parametric rotor mesh + live panel.
+// All design state lives in the TurbineSpec component on the entity;
+// the system only keeps dirty-snapshot and animation state as members.
+#include <exd/sim/turbine_system.hpp>
 
 #include <exd/geometry/extrusion.hpp>
 #include <exd/geometry/mesh_ops.hpp>
@@ -16,6 +19,7 @@
 
 #include <array>
 #include <cmath>
+#include <cstdio>
 
 namespace exd::sim {
 
@@ -25,7 +29,7 @@ constexpr float kPi = 3.14159265358979323846f;
 
 float deg2rad(float d) { return d * kPi / 180.0f; }
 
-bool same(const TurbineParams& a, const TurbineParams& b) {
+bool same_spec(const TurbineSpec& a, const TurbineSpec& b) {
     return a.blade_count == b.blade_count &&
            a.radius      == b.radius      &&
            a.hub_radius  == b.hub_radius  &&
@@ -38,7 +42,8 @@ bool same(const TurbineParams& a, const TurbineParams& b) {
            a.yaw_deg     == b.yaw_deg     &&
            a.hub_shape   == b.hub_shape   &&
            a.hub_nose    == b.hub_nose    &&
-           a.hub_aft     == b.hub_aft;
+           a.hub_aft     == b.hub_aft &&
+           a.rotor_sense == b.rotor_sense;
 }
 
 /// Build the whole machine mesh in geometry space:
@@ -47,7 +52,7 @@ bool same(const TurbineParams& a, const TurbineParams& b) {
 ///     the panel; radius follows the blade-root radius)
 /// The mesh's rotor plane sits at z = 0; the ECS Transform lifts it to hub
 /// height. Returns an empty mesh on failure.
-render::Mesh build_turbine_mesh(const TurbineParams& p) {
+render::Mesh build_turbine_mesh(const TurbineSpec& p) {
     using namespace exd::geometry;
 
     // ── Rotor: one BladeRow, straight LE at z=0, tapered TE ──
@@ -106,27 +111,32 @@ render::Mesh build_turbine_mesh(const TurbineParams& p) {
 // ── Frame ───────────────────────────────────────────────────────────
 
 void TurbineSystem::update(ecs::Registry& registry, double dt) {
+    reg_ = &registry;
     ensure_entities(registry);
 
+    const TurbineSpec& spec = registry.get<TurbineSpec>(entity_);
+
     // Live rebuild when a parameter changed (dirty check each frame).
-    if (!same(params_, last_params_)) {
-        rebuild_mesh(registry);
-        last_params_ = params_;
+    if (!same_spec(spec, last_spec_)) {
+        rebuild_mesh(registry, spec);
+        last_spec_ = spec;
     }
 
     // Rotor center just above the origin; spin around Z, yaw around Y.
-    spin_deg_ += params_.rpm * 6.0f * static_cast<float>(dt);   // rpm -> deg/s
+    // Sense 0 = turbine (CCW viewed from upwind +Z), 1 = fan (CW).
+    const float sense_dir = (spec.rotor_sense == 0) ? 1.0f : -1.0f;
+    spin_deg_ += sense_dir * spec.rpm * 6.0f * static_cast<float>(dt);   // rpm -> deg/s
     if (spin_deg_ > 360.0f) spin_deg_ -= 360.0f;
     if (spin_deg_ <   0.0f) spin_deg_ += 360.0f;
 
     const math::Quat yaw  = math::Quat::from_axis_angle(
-        math::Vec3f{0.0f, 1.0f, 0.0f}, deg2rad(params_.yaw_deg));
+        math::Vec3f{0.0f, 1.0f, 0.0f}, deg2rad(spec.yaw_deg));
     const math::Quat spin = math::Quat::from_axis_angle(
         math::Vec3f{0.0f, 0.0f, 1.0f}, deg2rad(spin_deg_));
 
     auto& xform = registry.get<render::Transform>(entity_);
     xform.rotation = (yaw * spin).norm();
-    xform.position = math::Vec3f{0.0f, hub_height(), 0.0f};
+    xform.position = math::Vec3f{0.0f, hub_height(spec), 0.0f};
 }
 
 // ── Entities / panel ────────────────────────────────────────────────
@@ -137,9 +147,10 @@ void TurbineSystem::ensure_entities(ecs::Registry& registry) {
     entity_ = registry.create("Turbine");
     registry.emplace<render::Transform>(entity_);
     registry.emplace<render::RenderableComponent>(entity_, 0u);
-    registry.emplace<render::RenderTechnique_Lambertian>(entity_);
-    rebuild_mesh(registry);   // uploads mesh + sets RenderableComponent
-    last_params_ = params_;
+    registry.emplace<render::RenderTechnique_Mirror>(entity_);
+    auto& spec = registry.emplace<TurbineSpec>(entity_);
+    rebuild_mesh(registry, spec);   // uploads mesh + sets RenderableComponent
+    last_spec_ = spec;
 
     if (!panel_added_) {
         auto panel = registry.create("TurbinePanel");
@@ -151,8 +162,8 @@ void TurbineSystem::ensure_entities(ecs::Registry& registry) {
     entities_ready_ = true;
 }
 
-void TurbineSystem::rebuild_mesh(ecs::Registry& registry) {
-    render::Mesh mesh = build_turbine_mesh(params_);
+void TurbineSystem::rebuild_mesh(ecs::Registry& registry, const TurbineSpec& spec) {
+    render::Mesh mesh = build_turbine_mesh(spec);
     if (mesh.vertices.empty()) {
         std::printf("[Turbine] build_turbine_mesh returned empty mesh\n");
         return;
@@ -171,7 +182,8 @@ void TurbineSystem::rebuild_mesh(ecs::Registry& registry) {
 // ── Panel ───────────────────────────────────────────────────────────
 
 void TurbineSystem::draw_panel() {
-    auto& p = params_;
+    if (!reg_) return;
+    auto& p = reg_->get<TurbineSpec>(entity_);
     ImGui::Text("Wind-turbine rotor — extropian-geometry");
     ImGui::Separator();
 
@@ -194,15 +206,24 @@ void TurbineSystem::draw_panel() {
     ImGui::SliderFloat("Hub aft [m]",   &p.hub_aft,  0.0f, 3.0f, "%.2f");
     if (flat_disk) ImGui::EndDisabled();
     ImGui::Separator();
-    ImGui::SliderFloat("Pitch [deg]", &p.pitch_deg, -10.0f, 25.0f, "%.1f");
-    ImGui::SliderFloat("Twist ramp [deg]", &p.twist_deg, 0.0f, 45.0f, "%.1f");
+    ImGui::SliderFloat("Pitch [deg]", &p.pitch_deg, -180.0f, 180.0f, "%.1f");
+    ImGui::SliderFloat("Twist ramp [deg]", &p.twist_deg, -90.0f, 90.0f, "%.1f");
     ImGui::SliderFloat("Thickness t/c", &p.thickness, 0.06f, 0.35f, "%.3f");
     ImGui::Separator();
     ImGui::SliderFloat("RPM", &p.rpm, 0.0f, 120.0f, "%.0f");
     ImGui::SliderFloat("Yaw [deg]", &p.yaw_deg, -180.0f, 180.0f, "%.1f");
+    static const char* kSense[] = {
+        "Turbine (CCW from upwind)",
+        "Fan (CW from upwind)",
+    };
+    ImGui::Combo("Rotor sense", &p.rotor_sense, kSense, IM_ARRAYSIZE(kSense));
+    ImGui::TextWrapped("With the default blade camber (convex side at +theta), "
+                       "CCW spin extracts energy (turbine); CW spin pushes air "
+                       "(fan). Pitch can be any angle; |pitch|>90 flips the "
+                       "sections.");
 
     ImGui::Separator();
-    if (ImGui::Button("Reset")) params_ = TurbineParams{};
+    if (ImGui::Button("Reset")) p = TurbineSpec{};
     ImGui::TextWrapped("The mesh rebuilds in real time as you drag.");
 }
 

@@ -1,7 +1,14 @@
 cmake_minimum_required(VERSION 3.21)
 project(extropian-simulator VERSION 0.1.0 LANGUAGES C CXX
-    DESCRIPTION "Extropian Simulator: simulation environment builder"
+    DESCRIPTION "Extropian Simulator: ECS-based simulation library + demos"
 )
+
+# Content-only repos (extropian-assets) are populated with
+# FetchContent_Populate (they have no CMakeLists.txt); CMP0169 (CMake 3.30+)
+# deprecates that call, so opt out from the start.
+if(POLICY CMP0169)
+    cmake_policy(SET CMP0169 OLD)
+endif()
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -56,35 +63,61 @@ if(NOT TARGET exd::geometry)
     FetchContent_MakeAvailable(exd-geometry)
 endif()
 
+if(NOT TARGET exd::optimization)
+    FetchContent_Declare(exd-optimization
+        GIT_REPOSITORY https://github.com/wesleycramblitt/extropian-optimization.git
+        GIT_TAG main
+    )
+    FetchContent_MakeAvailable(exd-optimization)
+endif()
+
+# ── Assets: pulled from the extropian-assets repo, never stored here ──
+# extropian-assets is a content-only Git repo (no CMakeLists.txt), so it is
+# downloaded with FetchContent_Populate and referenced via
+# exd-assets_SOURCE_DIR. It is fetched from GitHub only — there is NO
+# local-sibling override for it in build.sh by design.
+if(NOT exd-assets_POPULATED)
+    # Same declaration convention as extropian-render's demo (mirrors it).
+    FetchContent_Declare(exd-assets
+        GIT_REPOSITORY https://github.com/wesleycramblitt/extropian-assets.git
+        GIT_TAG main
+        GIT_SUBMODULES ""
+        GIT_SHALLOW TRUE
+    )
+    FetchContent_GetProperties(exd-assets)
+    if(NOT exd-assets_POPULATED)
+        FetchContent_Populate(exd-assets)
+    endif()
+endif()
+
 # Dear ImGui is provided by exd-render (imgui::imgui, with the
 # ImGuiSystem + ImGuiPanelComponent in exd/render/systems/).
 
-# ── Executable ────────────────────────────────────────
-add_executable(ExtropianSimulator
-    src/main.cpp
-    src/simulator_app.cpp
-    src/modes.cpp
+# ── Library: exd::sim ──────────────────────────────────
+# The reusable simulation library. Researchers build their own apps
+# against <exd/sim/...> and register systems into an ECS SystemGraph;
+# see demos/ for copyable examples and AGENTS.md for the ECS standards.
+add_library(exd-sim STATIC
     src/turbine_system.cpp
+    src/optimization_system.cpp
+)
+add_library(exd::sim ALIAS exd-sim)
+
+target_include_directories(exd-sim PUBLIC include)
+
+target_link_libraries(exd-sim PUBLIC
+    exd::core          # ecs types appear in public headers
+    exd::render        # GraphicsContext + render components in public headers
+    exd::optimization  # exd::opt in public headers
+)
+target_link_libraries(exd-sim PRIVATE
+    exd::geometry      # mesh builders used in implementations only
 )
 
-target_include_directories(ExtropianSimulator PRIVATE src)
+# ── Demos ───────────────────────────────────────────────
+# One executable per registration example (see demos/README).
+add_subdirectory(demos)
 
-target_link_libraries(ExtropianSimulator PRIVATE
-    exd::core
-    exd::render
-    exd::app
-    exd::physics
-    exd::geometry
-)
-
-# Copy assets and shaders to build directory
-add_custom_command(TARGET ExtropianSimulator POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_SOURCE_DIR}/assets
-        $<TARGET_FILE_DIR:ExtropianSimulator>/assets
-)
-add_custom_command(TARGET ExtropianSimulator POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${exd-render_SOURCE_DIR}/shaders
-        $<TARGET_FILE_DIR:ExtropianSimulator>/shaders
-)
+# Standalone integration test for the optimization library (has its own main()).
+add_executable(optimization_test src/optimization_test.cpp)
+target_link_libraries(optimization_test PRIVATE exd::optimization)
