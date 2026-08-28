@@ -90,6 +90,14 @@ if(NOT exd-assets_POPULATED)
     endif()
 endif()
 
+if(NOT TARGET exd::viz)
+    FetchContent_Declare(exd-viz
+        GIT_REPOSITORY https://github.com/wesleycramblitt/extropian-viz.git
+        GIT_TAG main
+    )
+    FetchContent_MakeAvailable(exd-viz)
+endif()
+
 # Dear ImGui is provided by exd-render (imgui::imgui, with the
 # ImGuiSystem + ImGuiPanelComponent in exd/render/systems/).
 

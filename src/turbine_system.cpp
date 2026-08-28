@@ -5,6 +5,7 @@
 
 #include <exd/geometry/extrusion.hpp>
 #include <exd/geometry/mesh_ops.hpp>
+#include <exd/geometry/part.hpp>
 #include <exd/geometry/turbine.hpp>
 
 #include <exd/math/quat.hpp>
@@ -47,13 +48,24 @@ bool same_spec(const TurbineSpec& a, const TurbineSpec& b) {
 }
 
 /// Build the whole machine mesh in geometry space:
-///   • rotor disc around the Z axis (blades in the XY plane)
+///   • one rotor BladeRow (LE at z=0, tapered TE) around the machine axis
 ///   • parametric hub / center body at the rotor center (shape selected in
 ///     the panel; radius follows the blade-root radius)
+///
+/// The geometry contract (extropian-geometry): generators expose a machine
+/// as an exd::geometry::Assembly of named, patched Parts ("hub",
+/// "flow_path", "rotor_0" with blade_surface / hub_cap / shroud_cap BC
+/// patches). The demo renders the whole machine as one mesh via
+/// flatten(), which preserves the patch ordinals; solver systems that
+/// consume BoundaryCondition patches should call
+/// generate_turbine_assembly() directly for the machine spec.
 /// The mesh's rotor plane sits at z = 0; the ECS Transform lifts it to hub
 /// height. Returns an empty mesh on failure.
 render::Mesh build_turbine_mesh(const TurbineSpec& p) {
     using namespace exd::geometry;
+
+    TurbineDefinition def;
+    def.revolve_segments = 48;
 
     // ── Rotor: one BladeRow, straight LE at z=0, tapered TE ──
     BladeRow row;
@@ -78,12 +90,7 @@ render::Mesh build_turbine_mesh(const TurbineSpec& p) {
         sec.max_thickness = {p.thickness, 0.001f, 0.9f, "t/c", false};
         row.sections.push_back(sec);
     }
-
-    FlowPath flow;   // the blade builder only consults tip_clearance
-    flow.tip_clearance = {0.01f, 0.0f, 0.02f, "m", false};
-
-    MeshData rotor = generate_blade_row_mesh(row, flow, 48);
-    if (rotor.vertices.empty()) return {};
+    def.blade_rows.push_back(row);
 
     // ── Hub / center body: revolved, capped profile at the rotor center.
     // The hub radius tracks the blade-root radius so the hub grows with the
@@ -99,11 +106,23 @@ render::Mesh build_turbine_mesh(const TurbineSpec& p) {
     hub.root_radius  = p.hub_radius;
     hub.front_length = p.hub_nose;
     hub.aft_length   = p.hub_aft;
-    MeshData hub_mesh = generate_hub_mesh(hub, 48);
+    def.hub = hub;
 
-    if (hub_mesh.vertices.empty()) return rotor;
-    const std::array<MeshData, 2> parts{rotor, hub_mesh};
-    return merge_meshes(parts);
+    // ── Assemble (patched parts per the geometry contract), render as one ──
+    Assembly machine = generate_turbine_assembly(def);
+    if (machine.parts.empty()) return {};
+
+    for (const Part& part : machine.parts) {
+        std::printf("[Turbine]   part \"%s\": %zu verts, patches:",
+                    part.name.c_str(), part.mesh.vertices.size());
+        for (const Patch& pc : part.patches)
+            std::printf(" %s(%zu tris)", pc.name.c_str(), pc.faces.size());
+        std::printf("\n");
+    }
+
+    Part flat = flatten(machine);
+    if (flat.mesh.vertices.empty() || flat.mesh.indices.empty()) return {};
+    return flat.mesh;
 }
 
 } // namespace

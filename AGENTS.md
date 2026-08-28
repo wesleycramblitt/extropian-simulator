@@ -42,12 +42,13 @@ other extropian repos for their purposes and do not reimplement them here:
 | Rendering, graphics context, render systems, components, ImGui host | `extropian-render` |
 | Assets / media (cubemaps, meshes, fonts, hdri, …) | `extropian-assets` |
 | Physics solvers, solver plugin interface, fields/BCs | `extropian-physics` |
-| Geometry: turbine blades, hubs, primitives, mesh ops | `extropian-geometry` |
+| Geometry: turbine blades, hubs, primitives, mesh ops. Machines are exposed as `exd::geometry::Assembly` of named, patched `Part`s (the BC contract for solver systems); consume `generate_turbine_assembly()` / `flatten()` | `extropian-geometry` |
 | Optimization: CMA-ES, NSGA-II, Nelder-Mead, … | `extropian-optimization` |
+| Visualization: field data, colormaps, slices, iso-surfaces, streamlines, particles | `extropian-viz` |
 | ECS core, math, config, window state | `extropian-core` |
 | Application shell (SDL3/OpenGL window + loop) | `extropian-app` |
 
-The exd libraries (except `extropian-assets`) are sibling repos fetched via
+The exd libraries (except `extropian-assets`; including `extropian-viz`) are sibling repos fetched via
 FetchContent; `build.sh` overrides them with **local checkouts** when present
 under `../`. `extropian-assets` is the exception: it is always fetched from
 GitHub (content-only repo, no local-sibling override).

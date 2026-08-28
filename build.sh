@@ -9,7 +9,7 @@ echo "=== Extropian Simulator Build ==="
 # Detect all sibling repos for local development (avoids re-fetching from GitHub)
 LOCAL_FLAGS=""
 for lib in extropian-core extropian-render extropian-app extropian-physics \
-           extropian-geometry extropian-optimization extropian-spatial-ui; do
+           extropian-geometry extropian-optimization extropian-viz extropian-spatial-ui; do
     local_path="${ROOT}/../${lib}"
     if [ -d "$local_path" ]; then
         echo "  Using local checkout: $lib"
