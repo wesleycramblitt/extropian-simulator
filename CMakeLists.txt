@@ -98,6 +98,14 @@ if(NOT TARGET exd::viz)
     FetchContent_MakeAvailable(exd-viz)
 endif()
 
+if(NOT TARGET exd::scene_renderer)
+    FetchContent_Declare(exd-spatial-ui
+        GIT_REPOSITORY https://github.com/wesleycramblitt/extropian-spatial-ui.git
+        GIT_TAG main
+    )
+    FetchContent_MakeAvailable(exd-spatial-ui)
+endif()
+
 # Dear ImGui is provided by exd-render (imgui::imgui, with the
 # ImGuiSystem + ImGuiPanelComponent in exd/render/systems/).
 
@@ -108,6 +116,9 @@ endif()
 add_library(exd-sim STATIC
     src/turbine_system.cpp
     src/optimization_system.cpp
+    src/solver_run_system.cpp
+    src/steam_engine_system.cpp
+    src/dashboard_feed_system.cpp
 )
 add_library(exd::sim ALIAS exd-sim)
 
@@ -117,6 +128,9 @@ target_link_libraries(exd-sim PUBLIC
     exd::core          # ecs types appear in public headers
     exd::render        # GraphicsContext + render components in public headers
     exd::optimization  # exd::opt in public headers
+    exd::physics       # solver run / engine / BEM entry points (public headers)
+    exd::viz           # Field3D + slice/streamline/iso cores for visualizers
+    exd::scene_renderer # dashboard feed writes DocumentNodeComponent
 )
 target_link_libraries(exd-sim PRIVATE
     exd::geometry      # mesh builders used in implementations only
@@ -129,3 +143,19 @@ add_subdirectory(demos)
 # Standalone integration test for the optimization library (has its own main()).
 add_executable(optimization_test src/optimization_test.cpp)
 target_link_libraries(optimization_test PRIVATE exd::optimization)
+
+# Standalone test for the SolverRunSystem run-mapping recipe: tiny coupled
+# FDM3 run must validate and be bit-for-bit deterministic (links physics only).
+add_executable(solver_run_test src/solver_run_test.cpp)
+target_link_libraries(solver_run_test PRIVATE exd::physics)
+target_include_directories(solver_run_test PRIVATE src include)
+
+# Standalone test for the steam-engine run recipe (engine_run.hpp).
+add_executable(engine_run_test src/engine_run_test.cpp)
+target_link_libraries(engine_run_test PRIVATE exd::physics)
+target_include_directories(engine_run_test PRIVATE src include)
+
+# Headless test for the spatial-ui dashboard pipeline (feed → resolution).
+add_executable(dashboard_feed_test src/dashboard_feed_test.cpp)
+target_link_libraries(dashboard_feed_test PRIVATE exd::sim)
+target_include_directories(dashboard_feed_test PRIVATE src include)

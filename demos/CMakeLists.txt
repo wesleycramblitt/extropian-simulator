@@ -10,19 +10,26 @@ target_include_directories(demo_host PUBLIC common)
 target_link_libraries(demo_host PUBLIC exd::app exd::render)
 
 # ── Demo executables — each one a self-contained registration example ──
-add_executable(extropian-sim-turbine turbine/main.cpp)
-target_link_libraries(extropian-sim-turbine PRIVATE demo_host exd::sim)
-
+# The default demo doubles as the minimal template; the physics demos add
+# their solver/optimization systems on top of it (see the subdirectories).
 add_executable(extropian-sim-optimize optimization/main.cpp)
 target_link_libraries(extropian-sim-optimize PRIVATE demo_host exd::sim)
+
+add_executable(extropian-sim-turbine-solver turbine_solver/main.cpp)
+target_link_libraries(extropian-sim-turbine-solver PRIVATE demo_host exd::sim)
+
+add_executable(extropian-sim-steam-engine steam_engine/main.cpp)
+target_link_libraries(extropian-sim-steam-engine PRIVATE demo_host exd::sim)
 
 # Assets + shaders next to every demo binary.
 # Assets come from the fetched extropian-assets repo (never stored locally);
 # add further asset subdirectories to this list when a demo consumes them.
 set(EXD_SIM_DEMO_ASSET_DIRS
     cubemaps
+    fonts
 )
-foreach(demo IN ITEMS extropian-sim-turbine extropian-sim-optimize)
+foreach(demo IN ITEMS extropian-sim-optimize extropian-sim-turbine-solver
+                  extropian-sim-steam-engine)
     foreach(dir IN LISTS EXD_SIM_DEMO_ASSET_DIRS)
         add_custom_command(TARGET ${demo} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_directory

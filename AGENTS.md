@@ -26,9 +26,13 @@ Never add asset directories here — add them to `extropian-assets` and to the
 `EXD_SIM_DEMO_ASSET_DIRS` list in `demos/CMakeLists.txt`.
 
 Build: `./build.sh` → binaries in `build/`:
-- `build/extropian-sim-turbine`   — single-system registration (minimal template)
-- `build/extropian-sim-optimize`  — multi-system composition (reference for coupling)
-- `build/optimization_test`       — headless CLI test (CMA-ES objective)
+- `build/extropian-sim-optimize`        — default demo (analytic-objective
+  optimization reference; also the minimal copyable template)
+- `build/extropian-sim-turbine-solver`  — real meshing + FDM3 solver run +
+  viz + coupled-CFD optimization
+- `build/extropian-sim-steam-engine`    — steam engine meshing + 0D engine
+  solver + optimization + indicator dashboards
+- `build/optimization_test`             — headless CLI test (CMA-ES objective)
 
 Run: `./run.sh [demo]` (default: optimize). `Z` toggles fly camera / UI mode.
 
@@ -45,6 +49,7 @@ other extropian repos for their purposes and do not reimplement them here:
 | Geometry: turbine blades, hubs, primitives, mesh ops. Machines are exposed as `exd::geometry::Assembly` of named, patched `Part`s (the BC contract for solver systems); consume `generate_turbine_assembly()` / `flatten()` | `extropian-geometry` |
 | Optimization: CMA-ES, NSGA-II, Nelder-Mead, … | `extropian-optimization` |
 | Visualization: field data, colormaps, slices, iso-surfaces, streamlines, particles | `extropian-viz` |
+| Spatial UI: layout engine, widget/chart mesh generators, VisualDocument → ECS pipeline (dashboards) | `extropian-spatial-ui` |
 | ECS core, math, config, window state | `extropian-core` |
 | Application shell (SDL3/OpenGL window + loop) | `extropian-app` |
 
@@ -97,6 +102,12 @@ GitHub (content-only repo, no local-sibling override).
   `TurbineSystem` so it writes `TurbineSpec` before the turbine consumes it.
 - Demo apps register sim systems in `DemoApp::register_sim_systems(graph)`.
   The render pipeline is owned by the host shell — do not reorder it.
+- The physics demos also register the spatial-ui dashboard pipeline in the
+  same hook (composer pattern): `scene_renderer` Font/Size/Layout/ViewportFit
+  (Structural/Layout) → Mesh/Relation/RenderOrder/ScreenWidget/Camera
+  (RenderPreparation) → `render::UIRenderSystem` (Render). The
+  `DashboardFeedSystem` (exd::sim) feeds domain components into the
+  document nodes; demos stay thin registration layers.
 
 ## Component ownership map (current)
 
@@ -104,7 +115,32 @@ GitHub (content-only repo, no local-sibling override).
 |---|---|---|---|
 | `TurbineSpec` | `"Turbine"` | TurbineSystem panel, OptimizationSystem | TurbineSystem |
 | `OptimizationConfig` | `"OptimizationStudy"` | OptimizationSystem panel | OptimizationSystem |
-| `FitnessRecord` | `"OptimizationStudy"` | OptimizationSystem | panels, future post-processing |
+| `FitnessRecord` | `"OptimizationStudy"` | OptimizationSystem | panels, dashboards |
+| `SolverRunConfig` | `"SolverRun"` | SolverRunSystem panel | SolverRunSystem |
+| `SolveRunState` | `"SolverRun"` | SolverRunSystem | panels, dashboards |
+| `EngineSpec` | `"SteamEngine"` | SteamEngineSystem panel, OptimizationSystem (engine mode) | SteamEngineSystem |
+| `EngineRunState` | `"SteamEngine"` | SteamEngineSystem | panels, dashboards |
+| `IndicatorRecord` | `"SteamEngine"` | SteamEngineSystem | panels, spatial-ui dashboards |
+
+## Background-work threading contract
+
+Background runs (`SolverRunSystem`, the coupled-CFD objective mode of
+`OptimizationSystem`, and `SteamEngineSystem`) execute their physics calls
+(`run_coupled_turbine()`, `simulate_engine()`) on a worker thread
+(`std::async`, one job at a time). The worker touches **no registry, no
+render, no ImGui** — it returns a heap payload through a `std::future`, and
+the main thread adopts it and writes components / uploads meshes. Poll with
+`future_.wait_for(0)`; never join-block in the frame loop.
+
+## Objective models (OptimizationSystem)
+
+`OptimizationSystem` is constructed with an `ObjectiveModel`:
+`Analytic` (inline fast objective — the default demo), `CoupledCfd`
+(one short 12³ FDM3 coupled run per candidate, evaluated sequentially on a
+background worker, ~0.7 s each) or `EngineSim` (inline 0D steam-engine
+simulation, ~ms each). Candidate designs are always mapped through the
+shared recipes in `src/coupled_run.hpp` / `src/engine_run.hpp`
+(single source of truth, mirrored by `solver_run_test` / `engine_run_test`).
 
 ## How to add a system (the researcher workflow this repo serves)
 
@@ -115,8 +151,9 @@ GitHub (content-only repo, no local-sibling override).
    via registry writes, optional self-registered panel.
 3. Add the `.cpp` to the `exd-sim` target in `CMakeLists.txt`.
 4. Add a demo in `demos/<name>/` (new directory + `main.cpp` subclassing
-   `DemoApp`, registering the system; see `demos/turbine` for the minimal
-   shape), and add the executable + asset-copy entry in `demos/CMakeLists.txt`.
+   `DemoApp`, registering the system; see `demos/optimization` for the
+   minimal shape), and add the executable + asset-copy entry in
+   `demos/CMakeLists.txt`.
 5. Update the component ownership map above.
 
 ## Conventions

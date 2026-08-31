@@ -1,4 +1,6 @@
 #pragma once
+
+#include <limits>
 // ─────────────────────────────────────────────────────────────────────
 // Optimization components — the study entity and design results.
 //
@@ -8,7 +10,8 @@
 // writing the TurbineSpec component on the turbine entity (see
 // components/turbine.hpp) — never through direct system references.
 //
-// Both structs are POD and satisfy the exd::ecs::Component concept.
+// Both structs are POD and satisfy the exd::ecs::Component concept
+// (std::numeric_limits keeps it trivially constructible/destructible).
 // ─────────────────────────────────────────────────────────────────────
 
 namespace exd::sim {
@@ -28,13 +31,17 @@ struct OptimizationConfig {
 /// length so FitnessRecord stays POD).
 inline constexpr int kOptimizationDesignVars = 8;
 
-/// Published results of the CMA-ES run, written to the study entity.
+/// Published results of the CMA-ES study, written to the study entity.
+/// best_fitness / best_design are the ALL-TIME best across runs for the
+/// current environment configuration (monotonic — they never regress);
+/// generation / evaluations describe the most recent run.
 /// Writers: OptimizationSystem.  Readers: panels, post-processing systems.
 struct FitnessRecord {
-    double best_fitness = 0.0;                  // weighted objective (lower = better)
+    double best_fitness = std::numeric_limits<double>::infinity(); // (lower = better)
     float  best_design[kOptimizationDesignVars] = {0.0f};
     int    generation   = 0;
     int    evaluations  = 0;
+    int    evals_pending = 0;      // candidates still queued in the current batch
     bool   running      = false;
 };
 

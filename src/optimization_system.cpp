@@ -8,6 +8,9 @@
 //   writes        TurbineSpec                        on the turbine entity
 #include <exd/sim/optimization_system.hpp>
 
+#include "coupled_run.hpp"
+#include "engine_run.hpp"
+
 #include <exd/ecs/view.hpp>
 
 #include <exd/render/systems/imgui_system.hpp>
@@ -27,9 +30,25 @@ namespace {
 
 // ── Run configuration ────────────────────────────────────────────────
 constexpr size_t kNumDesignVars = kOptimizationDesignVars; // design vector length
-constexpr size_t kMaxEvaluations = 200; // evaluation budget per run
-constexpr uint64_t kSeed = 42;          // deterministic seeded run
+constexpr size_t kMaxEvaluations = 2000; // evaluation budget per run
+                                          // (≈ 200 generations at λ=10 — long
+                                          //  enough to visibly converge)
+constexpr uint64_t kSeed = 42;          // base seed; each run gets a fresh
+                                        // (deterministic) seed = kSeed + run#
 constexpr size_t kNumThreads = 1;       // sequential (default λ = 10 at 8D)
+constexpr double kInitialSigmaFull   = 0.3;  // first run: explore the box
+constexpr double kInitialSigmaRefine = 0.05; // continuation: refine the record
+
+// ── Coupled-CFD objective mode ──────────────────────────────────────
+constexpr size_t kCfdMaxEvaluations = 60;   // 6 generations of λ=10
+constexpr int    kCfdGrid   = 12;           // cells per axis (~1.7k cells)
+constexpr int    kCfdSteps  = 1500;         // fluid steps (~0.7 s / candidate)
+constexpr double kCfdRamp   = 1.0;          // ramp (floored by the recipe)
+constexpr double kCfdPenalty = 1e3;         // fitness for invalid/unstable runs
+
+// ── Engine-sim objective mode ───────────────────────────────────────
+constexpr size_t kEngineMaxEvaluations = 400; // budget (evals are ~ms each)
+constexpr double kEnginePenalty = 1e6;        // fitness for invalid designs
 
 // ── Physics-based turbine objective ──────────────────────────────────
 //
@@ -186,6 +205,36 @@ double evaluate_turbine_design(const std::vector<double>& eng,
     return objective;
 }
 
+/// Worker for one coupled-CFD candidate: build a design snapshot, run the
+/// short coupled FDM3 solver, return the objective. No registry access.
+std::unique_ptr<CfdEvalResult> cfd_eval_worker(
+    const TurbineSpec& design, float wind_speed, float ramp_time_s,
+    int grid, int steps) {
+    auto out = std::make_unique<CfdEvalResult>();
+    const impl::CoupledRunOutcome outcome =
+        impl::run_coupled_eval(design, wind_speed, grid, steps, ramp_time_s,
+                               1.8, 3.0, nullptr);
+    out->valid = outcome.valid;
+    out->error = outcome.error;
+    out->cp = outcome.final_cp;
+    out->tsr = outcome.final_tsr;
+    out->power_w = outcome.power_w;
+    out->wall_seconds = outcome.wall_seconds;
+    // Objective: minimize −Cp; invalid/unstable runs get a large penalty so
+    // CMA-ES steers away from them.
+    out->fitness = outcome.valid ? -outcome.final_cp : kCfdPenalty;
+    return out;
+}
+
+/// Engineer an EngineSpec from the design vector + the fixed snapshot:
+/// eng = {p_boiler, cutoff_deg, crank_radius, bore}.
+void apply_engine_params(EngineSpec& p, const std::vector<double>& eng) {
+    p.p_boiler    = static_cast<float>(eng[0]);
+    p.cutoff_deg  = static_cast<float>(eng[1]);
+    p.crank_radius = static_cast<float>(eng[2]);
+    p.bore        = static_cast<float>(eng[3]);
+}
+
 /// Map an engineering design vector into the turbine's TurbineSpec.
 void apply_params(TurbineSpec& p, const std::vector<double>& eng) {
     p.radius      = static_cast<float>(eng[0]);
@@ -201,6 +250,14 @@ void apply_params(TurbineSpec& p, const std::vector<double>& eng) {
 /// True when the handle was set (i.e. not the default-constructed Entity).
 bool entity_set(ecs::Entity e) {
     return e.id != std::numeric_limits<ecs::Entity::id_type>::max();
+}
+
+/// Environment config comparison — the all-time best only stays valid
+/// while the objective inputs are unchanged.
+bool same_config(const OptimizationConfig& a, const OptimizationConfig& b) {
+    return a.wind_speed == b.wind_speed && a.viscosity == b.viscosity &&
+           a.air_density == b.air_density && a.hub_height == b.hub_height &&
+           a.cost_per_kg == b.cost_per_kg && a.blade_density == b.blade_density;
 }
 
 } // namespace
@@ -240,14 +297,75 @@ void OptimizationSystem::find_turbine(ecs::Registry& registry) {
         [this](ecs::Entity e, const TurbineSpec&) { if (!entity_set(turbine_)) turbine_ = e; });
 }
 
+/// True when the live turbine design differs from the all-time best
+/// (i.e. the user edited TurbinePanel sliders between runs).
+bool OptimizationSystem::turbine_tweaked() const {
+    if (best_design_.size() < kNumDesignVars) return false;
+    if (!reg_ || !entity_set(turbine_) || !reg_->valid(turbine_)) return false;
+    const auto* spec = reg_->try_get<TurbineSpec>(turbine_);
+    if (!spec) return false;
+    const float bd[] = {
+        static_cast<float>(best_design_[0]), static_cast<float>(best_design_[1]),
+        static_cast<float>(best_design_[2]), static_cast<float>(best_design_[3]),
+        static_cast<float>(best_design_[4]), static_cast<float>(best_design_[5]),
+        static_cast<float>(best_design_[6]), static_cast<float>(best_design_[7]),
+    };
+    return bd[0] != spec->radius || bd[1] != spec->hub_radius ||
+           bd[2] != spec->axial_chord || bd[3] != spec->tip_taper ||
+           bd[4] != spec->pitch_deg || bd[5] != spec->twist_deg ||
+           bd[6] != spec->thickness || bd[7] != spec->hub_nose;
+}
+
 // ── Start / stop ────────────────────────────────────────────────────
 
 void OptimizationSystem::start_optimization() {
     if (running_) return;
+    ++run_counter_;
 
-    // 8 design variables with engineering-space bounds.
+    const OptimizationConfig& cfg = reg_->get<OptimizationConfig>(study_);
+
+    // ── All-time best across runs ─────────────────────────────────
+    // The record (best_design_ / current_best_fitness_) intentionally
+    // persists across runs so repeated starts can only improve it.
+    // Re-baseline only when the environment changed or the user tweaked
+    // the turbine design by hand between runs.
+    if (!has_baseline_ || !same_config(baseline_config_, cfg) || turbine_tweaked()) {
+        has_baseline_ = true;
+        baseline_config_ = cfg;
+        current_best_fitness_ = std::numeric_limits<double>::infinity();
+        best_design_.clear();
+        if (reg_ && entity_set(turbine_) && reg_->valid(turbine_)) {
+            if (const auto* spec = reg_->try_get<TurbineSpec>(turbine_)) {
+                best_design_ = {
+                    spec->radius, spec->hub_radius, spec->axial_chord, spec->tip_taper,
+                    spec->pitch_deg, spec->twist_deg, spec->thickness, spec->hub_nose
+                };
+                // Analytic mode can score the baseline immediately; the
+                // coupled-CFD mode leaves the record at +inf and lets the
+                // first evaluated candidate establish it (each candidate is
+                // a real solver run, and the current design is the warm
+                // start, so it is evaluated in the first batch anyway).
+                if (model_ == ObjectiveModel::Analytic)
+                    current_best_fitness_ = evaluate_turbine_design(
+                        best_design_, cfg.wind_speed, cfg.viscosity, cfg.air_density,
+                        cfg.hub_height, cfg.cost_per_kg, cfg.blade_density);
+            }
+        }
+        completed_run_ = false;
+    }
+
+    // Design variables depend on the objective model.
     exd::opt::Problem problem;
-    problem.variables.push_back({.lower = 1.0,   .upper = 8.0});    // radius     [m]
+    if (model_ == ObjectiveModel::EngineSim) {
+        // Steam engine: boiler pressure, cutoff, crank radius, bore.
+        problem.variables.push_back({.lower = 2.0e5,  .upper = 2.0e6});  // p_boiler [Pa]
+        problem.variables.push_back({.lower = 10.0,   .upper = 120.0});   // cutoff   [deg]
+        problem.variables.push_back({.lower = 0.02,   .upper = 0.15});    // crank_radius [m]
+        problem.variables.push_back({.lower = 0.05,   .upper = 0.20});    // bore     [m]
+    } else {
+        // Turbine: 8 design variables (radius, hub, chord, taper, pitch,
+        // twist, thickness, hub nose).
+        problem.variables.push_back({.lower = 1.0,   .upper = 8.0});    // radius     [m]
     problem.variables.push_back({.lower = 0.2,   .upper = 1.0});    // hub_radius [m]
     problem.variables.push_back({.lower = 0.3,   .upper = 2.5});    // axial_chord [m]
     problem.variables.push_back({.lower = 0.35,  .upper = 1.0});    // tip_taper  [-]
@@ -255,15 +373,47 @@ void OptimizationSystem::start_optimization() {
     problem.variables.push_back({.lower = -90.0,  .upper = 90.0});  // twist_deg  [deg]
     problem.variables.push_back({.lower = 0.06,  .upper = 0.35});   // thickness  [t/c]
     problem.variables.push_back({.lower = 0.0,   .upper = 3.0});    // hub_nose   [m]
+    }
 
     exd::opt::OptimizeOptions opts;
-    opts.max_evaluations = kMaxEvaluations;
-    opts.seed = kSeed;
+    opts.max_evaluations =
+        model_ == ObjectiveModel::CoupledCfd
+            ? kCfdMaxEvaluations
+            : (model_ == ObjectiveModel::EngineSim ? kEngineMaxEvaluations
+                                                   : kMaxEvaluations);
+    opts.seed = kSeed + run_counter_;   // fresh trajectory per run, still
+                                        // deterministic and reproducible
     opts.n_threads = kNumThreads;
     opts.track_history = true;
+    // Continuation runs refine around the current record instead of
+    // re-exploring the whole box at full width (CMA-ES default σ = 0.3
+    // would wander away from a known good design and usually regress).
+    opts.initial_sigma = completed_run_ ? kInitialSigmaRefine : kInitialSigmaFull;
 
-    // ── Seed from the current turbine design so CMA-ES iterates on it ──
-    if (reg_ && entity_set(turbine_) && reg_->valid(turbine_)) {
+    // Snapshot the environment for coupled-CFD evals so mid-run slider
+    // edits cannot corrupt the objective midway through a batch.
+    const OptimizationConfig& env = reg_->get<OptimizationConfig>(study_);
+    cfd_cfg_ = {env.wind_speed, kCfdRamp, kCfdGrid, kCfdSteps};
+    (void)env;
+    pending_batch_.clear();
+    pending_fitness_.clear();
+    pending_done_ = 0;
+
+    // ── Seed from the current design so CMA-ES iterates on it ──
+    if (model_ == ObjectiveModel::EngineSim) {
+        // fixed fields for the objective come from the CURRENT engine design
+        reg_->view<EngineSpec>().each([this](ecs::Entity, const EngineSpec& e) {
+            engine_base_ = e;
+        });
+        const double eng[] = {engine_base_.p_boiler, engine_base_.cutoff_deg,
+                              engine_base_.crank_radius, engine_base_.bore};
+        opts.initial_mean.resize(problem.dim());
+        for (size_t i = 0; i < problem.dim(); ++i) {
+            const double lo = problem.variables[i].lower;
+            const double hi = problem.variables[i].upper;
+            opts.initial_mean[i] = std::clamp((eng[i] - lo) / (hi - lo), 0.0, 1.0);
+        }
+    } else if (reg_ && entity_set(turbine_) && reg_->valid(turbine_)) {
         if (const auto* spec = reg_->try_get<TurbineSpec>(turbine_)) {
             const double eng[] = {
                 spec->radius, spec->hub_radius, spec->axial_chord, spec->tip_taper,
@@ -284,7 +434,8 @@ void OptimizationSystem::start_optimization() {
     result_ = exd::opt::OptimizationResult{};
     current_generation_ = 0;
     current_evaluations_ = 0;
-    current_best_fitness_ = std::numeric_limits<double>::infinity();
+    // NOTE: current_best_fitness_ / best_design_ are NOT reset here —
+    // they are the monotonic all-time record for the current environment.
 
     // Seed the display with the current turbine design
     if (reg_ && entity_set(turbine_) && reg_->valid(turbine_)) {
@@ -300,11 +451,13 @@ void OptimizationSystem::start_optimization() {
     running_ = true;
     publish_fitness();
 
-    const auto& cfg = reg_->get<OptimizationConfig>(study_);
-    std::printf("[Optimization] CMA-ES started: v=%.1f m/s, μ=%.1e m²/s, "
-                "ρ=%.3f kg/m³, %zu design vars, %zu evals\n",
+    std::printf("[Optimization] CMA-ES %s: v=%.1f m/s, μ=%.1e m²/s, "
+                "ρ=%.3f kg/m³, %zu design vars, %zu evals, seed=%zu%s\n",
+                completed_run_ ? "refining (warm start)" : "started",
                 cfg.wind_speed, cfg.viscosity, cfg.air_density,
-                optimizer_->problem().dim(), kMaxEvaluations);
+                optimizer_->problem().dim(), opts.max_evaluations,
+                static_cast<size_t>(kSeed + run_counter_),
+                model_ == ObjectiveModel::CoupledCfd ? " (coupled-CFD)" : "");
 }
 
 void OptimizationSystem::stop_optimization() {
@@ -322,6 +475,15 @@ void OptimizationSystem::update(ecs::Registry& registry, double dt) {
     find_turbine(registry);
     if (!running_ || !optimizer_) return;
 
+    if (model_ == ObjectiveModel::CoupledCfd) {
+        cfd_update(registry);
+        return;
+    }
+    if (model_ == ObjectiveModel::EngineSim) {
+        engine_update(registry);
+        return;
+    }
+
     // 1. Pull the next batch of candidate designs.
     std::vector<exd::opt::design> batch = optimizer_->request_batch();
 
@@ -330,11 +492,15 @@ void OptimizationSystem::update(ecs::Registry& registry, double dt) {
     // 2. An empty batch means the run is finished — finalize.
     if (batch.empty()) {
         running_ = false;
+        completed_run_ = true;
         result_ = optimizer_->result();
-        if (!result_.best_x.empty()) {
+        // Monotonic guard: adopt the run's verdict only if it actually
+        // beats the all-time record (candidates were already checked, so
+        // this is defensive — it keeps cross-run progress honest).
+        if (!result_.best_x.empty() && !result_.best_fitness.empty() &&
+            result_.best_fitness[0] < current_best_fitness_) {
             best_design_ = result_.best_x;
-            if (!result_.best_fitness.empty())
-                current_best_fitness_ = result_.best_fitness[0];
+            current_best_fitness_ = result_.best_fitness[0];
         }
         current_generation_ = optimizer_->generation();
         current_evaluations_ = optimizer_->evaluations();
@@ -367,14 +533,16 @@ void OptimizationSystem::update(ecs::Registry& registry, double dt) {
     optimizer_->submit_results(std::move(evals));
 
     // 5. If the step ended the run (convergence / budget hit), keep the
-    //    engine's final verdict as the authoritative answer.
+    //    engine's final verdict as the authoritative answer (guarded by
+    //    the all-time record, see step 2).
     if (!optimizer_->running()) {
         running_ = false;
+        completed_run_ = true;
         result_ = optimizer_->result();
-        if (!result_.best_x.empty()) {
+        if (!result_.best_x.empty() && !result_.best_fitness.empty() &&
+            result_.best_fitness[0] < current_best_fitness_) {
             best_design_ = result_.best_x;
-            if (!result_.best_fitness.empty())
-                current_best_fitness_ = result_.best_fitness[0];
+            current_best_fitness_ = result_.best_fitness[0];
         }
     }
 
@@ -384,6 +552,184 @@ void OptimizationSystem::update(ecs::Registry& registry, double dt) {
 
     // 7. Reflect the best-so-far design on the live turbine.
     apply_best_design();
+    publish_fitness();
+}
+
+// ── Engine-sim objective mode ───────────────────────────────────────
+
+void OptimizationSystem::engine_update(ecs::Registry& registry) {
+    // Candidate evaluations are sub-millisecond (0D simulator): evaluate
+    // the whole batch inline, mirroring the analytic path.
+    std::vector<exd::opt::design> batch = optimizer_->request_batch();
+    const EngineSpec base = engine_base_;
+
+    if (batch.empty()) {
+        running_ = false;
+        completed_run_ = true;
+        result_ = optimizer_->result();
+        if (!result_.best_x.empty() && !result_.best_fitness.empty() &&
+            result_.best_fitness[0] < current_best_fitness_) {
+            best_design_ = result_.best_x;
+            current_best_fitness_ = result_.best_fitness[0];
+        }
+        current_generation_ = optimizer_->generation();
+        current_evaluations_ = optimizer_->evaluations();
+        apply_best_engine_design();
+        publish_fitness();
+        std::printf("[Optimization] engine-sim finished: %s, %zu evals, "
+                    "%zu generations\n",
+                    exd::opt::to_string(result_.stop_reason),
+                    current_evaluations_, current_generation_);
+        return;
+    }
+
+    std::vector<exd::opt::Evaluation> evals;
+    evals.reserve(batch.size());
+    for (const auto& cand : batch) {
+        const std::vector<double> eng =
+            exd::opt::to_engineering(optimizer_->problem(), cand);
+        EngineSpec spec = base;
+        apply_engine_params(spec, eng);
+        const impl::EngineRunOutcome res = impl::run_engine_eval(spec);
+        const double f = res.valid ? -res.mean_power_w : kEnginePenalty;
+        if (f < current_best_fitness_) {
+            current_best_fitness_ = f;
+            best_design_ = eng;
+        }
+        evals.push_back(exd::opt::Evaluation{{f}});
+    }
+
+    optimizer_->submit_results(std::move(evals));
+    if (!optimizer_->running()) {
+        running_ = false;
+        completed_run_ = true;
+        result_ = optimizer_->result();
+        if (!result_.best_x.empty() && !result_.best_fitness.empty() &&
+            result_.best_fitness[0] < current_best_fitness_) {
+            best_design_ = result_.best_x;
+            current_best_fitness_ = result_.best_fitness[0];
+        }
+    }
+    current_generation_ = optimizer_->generation();
+    current_evaluations_ = optimizer_->evaluations();
+    apply_best_engine_design();
+    publish_fitness();
+}
+
+void OptimizationSystem::apply_best_engine_design() {
+    if (!reg_ || best_design_.size() < 4) return;
+    // The engine is located by its component; write EngineSpec and
+    // SteamEngineSystem picks it up on its next update.
+    reg_->view<EngineSpec>().each([this](ecs::Entity, EngineSpec& e) {
+        apply_engine_params(e, best_design_);
+    });
+}
+
+// ── Coupled-CFD objective mode ──────────────────────────────────────
+
+void OptimizationSystem::cfd_update(ecs::Registry& registry) {
+    // 1. Poll the worker; adopt the finished candidate evaluation.
+    if (cfd_busy_.load(std::memory_order_relaxed)) {
+        if (cfd_future_.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+            return;
+        std::unique_ptr<CfdEvalResult> res;
+        try {
+            res = cfd_future_.get();
+        } catch (...) {
+            res = std::make_unique<CfdEvalResult>();
+            res->error = "worker exception";
+        }
+        cfd_busy_.store(false, std::memory_order_relaxed);
+        if (cfd_run_token_ != run_counter_) return;   // stale run: discard
+
+        const double f = res ? res->fitness : kCfdPenalty;
+        if (pending_done_ < pending_fitness_.size())
+            pending_fitness_[pending_done_] = f;
+        if (res && res->valid && f < current_best_fitness_) {
+            current_best_fitness_ = f;
+            best_design_ = exd::opt::to_engineering(
+                optimizer_->problem(), pending_batch_[pending_done_]);
+            apply_best_design();
+        }
+        std::printf("[Optimization] candidate %zu/%zu: Cp=%.3f (%.2fs)\n",
+                    pending_done_ + 1, pending_batch_.size(),
+                    res ? res->cp : 0.0, res ? res->wall_seconds : 0.0);
+        ++pending_done_;
+
+        // Batch complete → hand all λ results to the optimizer.
+        if (pending_done_ == pending_batch_.size()) {
+            std::vector<exd::opt::Evaluation> evals;
+            evals.reserve(pending_fitness_.size());
+            for (double f : pending_fitness_)
+                evals.push_back(exd::opt::Evaluation{{f}});
+            pending_batch_.clear();
+            pending_fitness_.clear();
+            pending_done_ = 0;
+            optimizer_->submit_results(std::move(evals));
+            if (!optimizer_->running()) {
+                running_ = false;
+                completed_run_ = true;
+                result_ = optimizer_->result();
+                if (!result_.best_x.empty() && !result_.best_fitness.empty() &&
+                    result_.best_fitness[0] < current_best_fitness_) {
+                    best_design_ = result_.best_x;
+                    current_best_fitness_ = result_.best_fitness[0];
+                }
+            }
+            current_generation_ = optimizer_->generation();
+            current_evaluations_ = optimizer_->evaluations();
+            apply_best_design();
+            publish_fitness();
+            return;
+        }
+    }
+
+    // 2. Refill the queue when idle.
+    if (cfd_busy_.load(std::memory_order_relaxed)) return;
+    if (pending_batch_.empty()) {
+        const std::vector<exd::opt::design> batch = optimizer_->request_batch();
+        if (batch.empty()) {
+            // Run finished (budget/convergence): finalize like the
+            // analytic path.
+            running_ = false;
+            completed_run_ = true;
+            result_ = optimizer_->result();
+            if (!result_.best_x.empty() && !result_.best_fitness.empty() &&
+                result_.best_fitness[0] < current_best_fitness_) {
+                best_design_ = result_.best_x;
+                current_best_fitness_ = result_.best_fitness[0];
+            }
+            current_generation_ = optimizer_->generation();
+            current_evaluations_ = optimizer_->evaluations();
+            apply_best_design();
+            publish_fitness();
+            std::printf("[Optimization] coupled-CFD finished: %s, %zu evals, "
+                        "%zu generations\n",
+                        exd::opt::to_string(result_.stop_reason),
+                        current_evaluations_, current_generation_);
+            return;
+        }
+        pending_batch_ = batch;
+        pending_fitness_.assign(batch.size(), kCfdPenalty);
+        pending_done_ = 0;
+    }
+
+    // 3. Launch the next candidate (one worker at a time).
+    if (pending_done_ < pending_batch_.size()) {
+        TurbineSpec design;
+        apply_params(design,
+                     exd::opt::to_engineering(optimizer_->problem(),
+                                              pending_batch_[pending_done_]));
+        const CfdEvalCfg cfg = cfd_cfg_;
+        cfd_run_token_ = run_counter_;
+        cfd_future_ = std::async(std::launch::async, cfd_eval_worker, design,
+                                 cfg.wind_speed, cfg.ramp_time_s, cfg.grid,
+                                 cfg.steps);
+        cfd_busy_.store(true, std::memory_order_relaxed);
+        std::printf("[Optimization] evaluating candidate %zu/%zu (gen %zu)\n",
+                    pending_done_ + 1, pending_batch_.size(),
+                    current_generation_ + 1);
+    }
     publish_fitness();
 }
 
@@ -404,6 +750,10 @@ void OptimizationSystem::publish_fitness() {
     rec.running = running_;
     rec.generation = static_cast<int>(generation());
     rec.evaluations = static_cast<int>(evaluations());
+    rec.evals_pending = (running_ && model_ == ObjectiveModel::CoupledCfd &&
+                         !pending_batch_.empty())
+                            ? static_cast<int>(pending_batch_.size() - pending_done_)
+                            : 0;
     rec.best_fitness = current_best_fitness_;
     for (size_t i = 0; i < best_design_.size() && i < kNumDesignVars; ++i)
         rec.best_design[i] = static_cast<float>(best_design_[i]);
@@ -435,20 +785,23 @@ void OptimizationSystem::draw_panel() {
     auto& cfg = reg_->get<OptimizationConfig>(study_);
     const auto& rec = reg_->get<FitnessRecord>(study_);
 
-    ImGui::Text("CMA-ES turbine design optimization");
+    ImGui::Text(model_ == ObjectiveModel::EngineSim
+                    ? "CMA-ES steam engine optimization"
+                    : "CMA-ES turbine design optimization");
     ImGui::Separator();
 
-    // ── Environment settings (stored in OptimizationConfig on the study) ──
-    ImGui::Text("Environment");
-    ImGui::SliderFloat("Wind speed [m/s]", &cfg.wind_speed, 1.0f, 40.0f, "%.1f");
-    ImGui::SliderFloat("Viscosity [m²/s]", &cfg.viscosity, 5.0e-6f, 5.0e-4f, "%.1e");
-    ImGui::SliderFloat("Air density [kg/m³]", &cfg.air_density, 0.5f, 1.5f, "%.3f");
-    ImGui::SliderFloat("Hub height [m]", &cfg.hub_height, 5.0f, 100.0f, "%.0f");
-    ImGui::Separator();
-    ImGui::SliderFloat("Cost per kg", &cfg.cost_per_kg, 0.1f, 10.0f, "%.1f");
-    ImGui::SliderFloat("Blade density [kg/m³]", &cfg.blade_density, 500.0f, 3000.0f, "%.0f");
-
-    ImGui::Separator();
+    if (model_ != ObjectiveModel::EngineSim) {
+        // ── Environment settings (stored in OptimizationConfig) ──
+        ImGui::Text("Environment");
+        ImGui::SliderFloat("Wind speed [m/s]", &cfg.wind_speed, 1.0f, 40.0f, "%.1f");
+        ImGui::SliderFloat("Viscosity [m²/s]", &cfg.viscosity, 5.0e-6f, 5.0e-4f, "%.1e");
+        ImGui::SliderFloat("Air density [kg/m³]", &cfg.air_density, 0.5f, 1.5f, "%.3f");
+        ImGui::SliderFloat("Hub height [m]", &cfg.hub_height, 5.0f, 100.0f, "%.0f");
+        ImGui::Separator();
+        ImGui::SliderFloat("Cost per kg", &cfg.cost_per_kg, 0.1f, 10.0f, "%.1f");
+        ImGui::SliderFloat("Blade density [kg/m³]", &cfg.blade_density, 500.0f, 3000.0f, "%.0f");
+        ImGui::Separator();
+    }
 
     // ── Start / stop ──
     if (running_) {
@@ -460,16 +813,27 @@ void OptimizationSystem::draw_panel() {
     ImGui::Separator();
     ImGui::Text("Status: %s", status_text());
     ImGui::Text("Generation: %d", rec.generation);
-    ImGui::Text("Evaluations: %d / %zu", rec.evaluations, kMaxEvaluations);
-    if (std::isfinite(rec.best_fitness)) {
-        ImGui::Text("Best fitness: %.4f", rec.best_fitness);
+    if (model_ == ObjectiveModel::CoupledCfd) {
+        ImGui::Text("Evaluations: %d / %zu", rec.evaluations, kCfdMaxEvaluations);
+        if (rec.running && rec.evals_pending > 0)
+            ImGui::Text("Evaluating candidate %d of batch...", rec.evals_pending);
     } else {
-        ImGui::Text("Best fitness: --");
+        ImGui::Text("Evaluations: %d / %zu", rec.evaluations, kMaxEvaluations);
+    }
+    if (std::isfinite(rec.best_fitness)) {
+        ImGui::Text("Best fitness (cumulative): %.4f", rec.best_fitness);
+    } else {
+        ImGui::Text("Best fitness (cumulative): --");
     }
 
     ImGui::Separator();
     ImGui::Text("Best design so far");
-    if (rec.evaluations > 0) {
+    if (rec.evaluations > 0 && model_ == ObjectiveModel::EngineSim) {
+        ImGui::Text("Boiler:       %.2f MPa",   rec.best_design[0] * 1e-6);
+        ImGui::Text("Cutoff:       %.1f deg",   rec.best_design[1]);
+        ImGui::Text("Crank radius: %.3f m",     rec.best_design[2]);
+        ImGui::Text("Bore:         %.3f m",     rec.best_design[3]);
+    } else if (rec.evaluations > 0) {
         ImGui::Text("Radius:       %.2f m",    rec.best_design[0]);
         ImGui::Text("Hub radius:   %.2f m",    rec.best_design[1]);
         ImGui::Text("Axial chord:  %.2f m",    rec.best_design[2]);
@@ -483,13 +847,26 @@ void OptimizationSystem::draw_panel() {
     }
 
     ImGui::Separator();
-    ImGui::TextWrapped(
-        "Objective: maximize (power revenue − blade cost). "
-        "Power uses actuator-disk model with Schmitz Cp, "
-        "Reynolds-number efficiency, and drivetrain losses. "
-        "Blade mass scales with R × c × t × density. "
-        "Adjust wind speed, viscosity, and cost to see how the "
-        "optimal design changes. One generation per frame.");
+    if (model_ == ObjectiveModel::EngineSim) {
+        ImGui::TextWrapped(
+            "Objective: maximize mean indicated power of the 0D steam "
+            "engine (Rankine-lite: admission to cutoff, wet-steam "
+            "polytrope, exhaust to condenser). Variables: boiler "
+            "pressure, cutoff, crank radius, bore. The best design is "
+            "written to the Steam Engine panel's spec and persists "
+            "across runs (monotonic record).");
+    } else {
+        ImGui::TextWrapped(
+            "Objective: maximize (power revenue − blade cost). "
+            "Power uses actuator-disk model with Schmitz Cp, "
+            "Reynolds-number efficiency, and drivetrain losses. "
+            "Blade mass scales with R × c × t × density. "
+            "The best design persists across runs for the current "
+            "environment: each restart refines it with a fresh search, "
+            "so repeated runs keep improving the record (it never "
+            "regresses). Changing the environment resets the record. "
+            "One generation per frame.");
+    }
 }
 
 } // namespace exd::sim
