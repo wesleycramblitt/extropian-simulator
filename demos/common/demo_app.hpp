@@ -7,7 +7,7 @@
 // ImGui), and asks the subclass only for the sim systems to register.
 //
 // Frame pipeline (SystemGraph phases — insertion order within a phase):
-//   Input             CameraSystem (fly camera, Z toggles UI/fly mode)
+//   Input             CameraModeSystem (FPS fly camera by default; Z toggles UI/fly mode)
 //   Simulation        ← demo hook register_sim_systems() (sim physics)
 //   RenderPreparation CubeMapSystem, PolygonModeSystem, PrimitiveMeshSystem
 //   Render            RenderSystem (scene) → ImGuiSystem (panels)
@@ -23,9 +23,10 @@
 #include <exd/app/application.hpp>
 #include <exd/core/window_state.hpp>
 #include <exd/ecs/registry.hpp>
+#include <exd/ecs/view.hpp>
 #include <exd/ecs/system_graph.hpp>
 #include <exd/render/graphics/graphics_context.hpp>
-#include <exd/render/systems/camera_system.hpp>
+#include <exd/render/systems/camera_mode_system.hpp>
 #include <exd/render/systems/cubemap_system.hpp>
 #include <exd/render/systems/imgui_system.hpp>
 #include <exd/render/systems/polygon_mode_system.hpp>
@@ -70,7 +71,7 @@ protected:
     exd::ecs::SystemGraph graph_;
 
 private:
-    std::unique_ptr<SystemAdapter<exd::render::CameraSystem>>       camera_adapter_;
+    std::unique_ptr<SystemAdapter<exd::render::CameraModeSystem>>    camera_adapter_;
     std::unique_ptr<SystemAdapter<exd::render::CubeMapSystem>>      cubemap_adapter_;
     std::unique_ptr<SystemAdapter<exd::render::PolygonModeSystem>>  poly_adapter_;
     std::unique_ptr<SystemAdapter<exd::render::PrimitiveMeshSystem>> prim_adapter_;

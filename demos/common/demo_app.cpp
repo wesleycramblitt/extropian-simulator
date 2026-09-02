@@ -16,14 +16,14 @@
 #include <exd/math/quat.hpp>
 #include <exd/math/vec3.hpp>
 
-#include <exd/render/systems/camera_system.hpp>
+#include <exd/render/systems/camera_mode_system.hpp>
 #include <exd/render/systems/cubemap_system.hpp>
 #include <exd/render/systems/imgui_system.hpp>
 #include <exd/render/systems/polygon_mode_system.hpp>
 #include <exd/render/systems/primitive_mesh_system.hpp>
 #include <exd/render/systems/render_system.hpp>
 
-#include <exd/render/components/camera_controller.hpp>
+#include <exd/render/components/camera_mode.hpp>
 #include <exd/render/components/camera_component.hpp>
 #include <exd/render/components/cubemap.hpp>
 #include <exd/render/components/environment.hpp>
@@ -42,14 +42,15 @@ DemoApp::DemoApp(const char* title)
 DemoApp::~DemoApp() = default;
 
 void DemoApp::on_startup() {
-    // ── Camera: starts at a vantage over the turbine; Z toggles
+    // ── Camera: starts at a vantage over the scene; Z toggles
     // free-fly (FPS mode: WASD + mouse look) vs UI mode (panels).
+    // The unified CameraModeController defaults to FPS flight.
     const math::Vec3f cam_pos{0.0f, 12.0f, 15.0f};
 
     auto cam = reg_.create("Camera");
     reg_.emplace<render::Transform>(cam, cam_pos);
     reg_.emplace<render::CameraComponent>(cam);
-    reg_.emplace<render::CameraController>(cam);
+    reg_.emplace<render::CameraModeController>(cam);
 
     // Start in UI mode so panels are clickable; Z switches to fly mode.
     window().set_input_mode(exd::core::InputMode::UI);
@@ -78,8 +79,8 @@ void DemoApp::on_startup() {
     // order within a phase): input first, sim systems, materialization,
     // then the draw passes and finally the ImGui overlay. Duck-typed
     // render systems go in through SystemAdapter wrappers. ──
-    camera_adapter_ = std::make_unique<SystemAdapter<render::CameraSystem>>(
-        render::CameraSystem(&window()));
+    camera_adapter_ = std::make_unique<SystemAdapter<render::CameraModeSystem>>(
+        render::CameraModeSystem(&window()));
     graph_.add_ref(ecs::SystemPhase::Input, camera_adapter_.get());
 
     cubemap_adapter_ = std::make_unique<SystemAdapter<render::CubeMapSystem>>(

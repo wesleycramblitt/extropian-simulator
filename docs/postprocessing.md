@@ -77,7 +77,7 @@ the representations above.
 
 ## 3. Probes, Plots, and Data Flow to UI
 
-- Probes: fixed local offsets (or gizmo-moved in the viewport); each probe
+- Probes: fixed local offsets (or moved with the 3D gizmo — `Gizmo3DSystem` — in the viewport); each probe
   writes a ring-buffer history (`Probe.history`) consumed by the
   `WorkbenchProjectionSystem` into spatial-ui plot documents
   (`generate_scatter_mesh`, `generate_line_mesh`, `generate_sparkline_mesh`).

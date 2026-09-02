@@ -132,7 +132,7 @@ panels are visible.
 ├──────────────────────────────────────────────────────────────────────┤
 │  extropian-render   render backend: passes, techniques, GPU compute   │
 │  extropian-core     ECS registry, math, JSON, serialization           │
-│  extropian-spatial-ui  UI widgets, layout, interaction, gizmos        │
+│  extropian-spatial-ui  UI widgets, layout, interaction                     │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -439,8 +439,8 @@ to cut T1 budget ≥ 50% at equal final fitness.
   the composer's `ai.*` sections). LLM maps prose → `DesignSpec`; the rules
   engine remains authoritative for engineering decisions.
 - Workbench polish: saved studies, comparison of candidate designs, undo/
-  redo through spatial-ui commands, gizmo-based manual tweaks (extend
-  `exd::render::GizmoSystem` or spatial-ui gizmo module).
+  redo through spatial-ui commands, gizmo-based manual tweaks via
+  `exd::render::Gizmo3DSystem` on extropian-geometry gizmo meshes.
 
 **Exit**: free-form prompts ("quiet 2 MW turbine for a ridge site with
 class-II winds") produce valid, converged studies with no manual setup.

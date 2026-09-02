@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 BUILD_DIR="${ROOT}/build"
 
 # First argument = demo binary basename; remaining args pass through.
-DEMO="${1:-extropian-sim-optimize}"
+DEMO="${1:-extropian-sim-shape-workshop}"
 shift || true
 EXE="${BUILD_DIR}/${DEMO}"
 

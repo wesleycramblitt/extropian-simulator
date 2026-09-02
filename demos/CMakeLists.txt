@@ -21,6 +21,12 @@ target_link_libraries(extropian-sim-turbine-solver PRIVATE demo_host exd::sim)
 add_executable(extropian-sim-steam-engine steam_engine/main.cpp)
 target_link_libraries(extropian-sim-steam-engine PRIVATE demo_host exd::sim)
 
+add_executable(extropian-sim-shape-workshop shape_workshop/main.cpp)
+target_link_libraries(extropian-sim-shape-workshop PRIVATE demo_host exd::sim)
+
+add_executable(extropian-sim-camera-modes camera_modes/main.cpp)
+target_link_libraries(extropian-sim-camera-modes PRIVATE demo_host exd::sim)
+
 # Assets + shaders next to every demo binary.
 # Assets come from the fetched extropian-assets repo (never stored locally);
 # add further asset subdirectories to this list when a demo consumes them.
@@ -29,7 +35,9 @@ set(EXD_SIM_DEMO_ASSET_DIRS
     fonts
 )
 foreach(demo IN ITEMS extropian-sim-optimize extropian-sim-turbine-solver
-                  extropian-sim-steam-engine)
+                  extropian-sim-steam-engine
+                  extropian-sim-shape-workshop
+                  extropian-sim-camera-modes)
     foreach(dir IN LISTS EXD_SIM_DEMO_ASSET_DIRS)
         add_custom_command(TARGET ${demo} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_directory

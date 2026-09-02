@@ -26,15 +26,22 @@ Never add asset directories here — add them to `extropian-assets` and to the
 `EXD_SIM_DEMO_ASSET_DIRS` list in `demos/CMakeLists.txt`.
 
 Build: `./build.sh` → binaries in `build/`:
-- `build/extropian-sim-optimize`        — default demo (analytic-objective
-  optimization reference; also the minimal copyable template)
+- `build/extropian-sim-shape-workshop`  — DEFAULT demo: parametric primitive
+  gallery (2D + 3D shapes from extropian-geometry recipes) with live
+  parameter control and 3D gizmo editing (the minimal copyable template)
+- `build/extropian-sim-camera-modes`    — unified mobile camera: FPS / orbit /
+  ground-walk / orthographic-2D editing + runtime FOV
+- `build/extropian-sim-optimize`        — analytic-objective optimization
+  reference
 - `build/extropian-sim-turbine-solver`  — real meshing + FDM3 solver run +
   viz + coupled-CFD optimization
 - `build/extropian-sim-steam-engine`    — steam engine meshing + 0D engine
   solver + optimization + indicator dashboards
-- `build/optimization_test`             — headless CLI test (CMA-ES objective)
+- `build/optimization_test`, `build/shape_workshop_test`, `build/solver_run_test`,
+  `build/engine_run_test`, `build/dashboard_feed_test` — headless CLI tests
 
-Run: `./run.sh [demo]` (default: optimize). `Z` toggles fly camera / UI mode.
+Run: `./run.sh [demo]` (default: shape-workshop). `Z` toggles fly camera / UI
+mode. In the shape-workshop demo, `1/2/3` switch the 3D gizmo mode.
 
 ## Ecosystem ownership (where code belongs)
 
@@ -43,10 +50,10 @@ other extropian repos for their purposes and do not reimplement them here:
 
 | Concern | Repo |
 |---|---|
-| Rendering, graphics context, render systems, components, ImGui host | `extropian-render` |
+| Rendering, graphics context, render systems, components, ImGui host; camera control (`CameraModeSystem` + `CameraModeController`: FPS/orbit/walk/ortho-2D) and the 3D scene tooling path (`PickerSystem`, `SelectionSystem`, `Gizmo3DSystem` — 3D gizmo interaction on geometry gizmo meshes) | `extropian-render` |
 | Assets / media (cubemaps, meshes, fonts, hdri, …) | `extropian-assets` |
 | Physics solvers, solver plugin interface, fields/BCs | `extropian-physics` |
-| Geometry: turbine blades, hubs, primitives, mesh ops. Machines are exposed as `exd::geometry::Assembly` of named, patched `Part`s (the BC contract for solver systems); consume `generate_turbine_assembly()` / `flatten()` | `extropian-geometry` |
+| Geometry: turbine blades, hubs, primitives, mesh ops, and the gizmo MESH generators (translate/rotate/scale + deform families in `gizmos.hpp` — the single gizmo geometry source). Machines are exposed as `exd::geometry::Assembly` of named, patched `Part`s (the BC contract for solver systems); consume `generate_turbine_assembly()` / `flatten()` | `extropian-geometry` |
 | Optimization: CMA-ES, NSGA-II, Nelder-Mead, … | `extropian-optimization` |
 | Visualization: field data, colormaps, slices, iso-surfaces, streamlines, particles | `extropian-viz` |
 | Spatial UI: layout engine, widget/chart mesh generators, VisualDocument → ECS pipeline (dashboards) | `extropian-spatial-ui` |
@@ -94,7 +101,7 @@ GitHub (content-only repo, no local-sibling override).
 ## SystemGraph usage (MUST)
 
 - All systems run through `exd::ecs::SystemGraph` phases:
-  `Input` (CameraSystem) → `Simulation` (sim systems;
+  `Input` (CameraModeSystem) → `Simulation` (sim systems;
   **insertion order = execution order**) → `RenderPreparation`
   (cubemap/polygon/primitive) → `Render` (RenderSystem, then ImGuiSystem).
 - Sim systems register in `SystemPhase::Simulation`. Within that phase, order
@@ -102,6 +109,9 @@ GitHub (content-only repo, no local-sibling override).
   `TurbineSystem` so it writes `TurbineSpec` before the turbine consumes it.
 - Demo apps register sim systems in `DemoApp::register_sim_systems(graph)`.
   The render pipeline is owned by the host shell — do not reorder it.
+  Scene tooling (PickerSystem / SelectionSystem / Gizmo3DSystem / GridSystem)
+  is registered by the shape demos as adapters; pointer glue lives in the
+  demo's `on_update`, following the extropian-render demo pattern.
 - The physics demos also register the spatial-ui dashboard pipeline in the
   same hook (composer pattern): `scene_renderer` Font/Size/Layout/ViewportFit
   (Structural/Layout) → Mesh/Relation/RenderOrder/ScreenWidget/Camera
@@ -121,6 +131,9 @@ GitHub (content-only repo, no local-sibling override).
 | `EngineSpec` | `"SteamEngine"` | SteamEngineSystem panel, OptimizationSystem (engine mode) | SteamEngineSystem |
 | `EngineRunState` | `"SteamEngine"` | SteamEngineSystem | panels, dashboards |
 | `IndicatorRecord` | `"SteamEngine"` | SteamEngineSystem | panels, spatial-ui dashboards |
+| `ShapeWorkshopSpec` | each `"Shape.N"` | ShapeWorkshopSystem panel | ShapeWorkshopSystem |
+| `CameraModeController` | `"Camera"` | demo panels / hotkeys | CameraModeSystem |
+| `GizmoModeComponent` | `"Tools"` | demo hotkeys / panel | Gizmo3DSystem |
 
 ## Background-work threading contract
 

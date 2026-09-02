@@ -119,6 +119,7 @@ add_library(exd-sim STATIC
     src/solver_run_system.cpp
     src/steam_engine_system.cpp
     src/dashboard_feed_system.cpp
+    src/shape_workshop_system.cpp
 )
 add_library(exd::sim ALIAS exd-sim)
 
@@ -159,3 +160,8 @@ target_include_directories(engine_run_test PRIVATE src include)
 add_executable(dashboard_feed_test src/dashboard_feed_test.cpp)
 target_link_libraries(dashboard_feed_test PRIVATE exd::sim)
 target_include_directories(dashboard_feed_test PRIVATE src include)
+
+# Headless test for the shape-workshop recipe dispatch (spec → mesh).
+add_executable(shape_workshop_test src/shape_workshop_test.cpp)
+target_link_libraries(shape_workshop_test PRIVATE exd::sim exd::geometry)
+target_include_directories(shape_workshop_test PRIVATE src include)

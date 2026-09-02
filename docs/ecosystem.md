@@ -10,8 +10,8 @@
 | Repo | Provides today | Simulator relies on | Gaps for this product |
 |---|---|---|---|
 | **extropian-core** | ECS (sparse-set registry, views, command buffer, hierarchy index), SystemGraph (working tree adds a phase enum; the app-level graph used by this repo exposes insertion order + `order_before`), math (vec/mat/quat/dualquat, bounds, raycast, color), FixedTimestep, RNG (PCG32), Config, JSON glue, VisualDocument/SemanticDocument types | Everything in `architecture.md` | No parallelism in SystemGraph (by design — cores own it); empty `exd::geom` (we add meshing in-repo); no ECS serialization (studies are JSON docs) |
-| **extropian-render** | OpenGL renderer, 8-pass RenderSystem, techniques (lambertian/reflective/particle/volume/highlight/gizmo), mesh/asset managers (static upload), CPU PickerSystem, `GizmoSystem` (T/R/S, `include/exd/render/interaction/gizmo.hpp` — single active gizmo, no snapping/registration API), GLAD 4.6 (compute entry points loaded), headless *nominal* | Render backend + compute substrate (with additions) | See §3 — compute is entirely missing in practice |
-| **extropian-spatial-ui** | geometry (2-D/3-D meshes, text w/ FreeType+HarfBuzz), layout engine (13 strategies), ui descriptor→mesh generators (35+), interaction (events, gestures, state machine, commands/undo, data bindings, 2-D hit), scene_renderer (VisualDocument→ECS runtime), all build + tests green | Entire workbench & gizmo surface | No retained interactive widgets, no gizmo module, no 3-D hit testing, no input routing — see §4 |
+| **extropian-render** | OpenGL renderer, multi-pass RenderSystem, techniques (lambertian/reflective/particle/volume/highlight; gizmo parts render as unlit overlay entities via `Gizmo3DSystem`), mesh/asset managers (static upload), CPU PickerSystem, `Gizmo3DSystem` (T/R/S on extropian-geometry gizmo meshes — unlit overlay parts), `CameraModeSystem`/`CameraModeController` (FPS/orbit/walk/ortho-2D), GLAD 4.6 (compute entry points loaded), headless *nominal* | Render backend + compute substrate (with additions) | See §3 — compute is entirely missing in practice |
+| **extropian-spatial-ui** | geometry (2-D/3-D meshes, text w/ FreeType+HarfBuzz), layout engine (13 strategies), ui descriptor→mesh generators (35+), interaction (events, gestures, state machine, commands/undo, data bindings, 2-D hit), scene_renderer (VisualDocument→ECS runtime), all build + tests green | Entire workbench surface (widgets, dashboards) | No retained interactive widgets, no 3-D hit testing, no input routing — see §4; 2-D gizmo stack removed 2026-09 (gizmo editing lives in render) |
 | **extropian-physics** | `ISolverPlugin`/`SolverManager` interface, `MaterialDatabase` (air/water/Al/steel/copper), mesh/field/bc structs (src-internal), I/O all stubs | Material database; mesh-quality idea; solver *interface pattern* | Public headers for mesh/field/BC types missing; io stubs (we implement our own exporters in-repo) |
 | **extropian-app** | Window, modes, application base, input state | App shell, mode machinery | None — works today (the prototype uses it) |
 | **extropian-solver-fluidx3d** | wrapper around FluidX3D-CLI (was partially implemented) | — | **Removed.** Simulator builds custom solvers (`ecosystem.md` §5); references already deleted from this repo |
@@ -79,12 +79,12 @@ repo will:
   `InteractionState` → our commands. Sliders etc. are visual meshes + our
   drag→value mapping through `CommandStack` + `IDocument` (the interaction
   module was built for exactly this wiring; nothing consumes it yet).
-- **Use `exd::render::GizmoSystem`** (T/R/S, existing — `ecosystem.md` §1)
-  for viewport manipulation of probes/slices and manual design tweaks;
-  it currently handles a single active gizmo with no snapping — extend it
-  (or wrap it) for per-object handle registration, and add drag-commit →
-  undoable simulator commands around it. If spatial-ui later adds a gizmo
-  module + 3-D hit testing (its `3d-hit-testing.md` spec), adopt it.
+- **Use `exd::render::Gizmo3DSystem`** (T/R/S on extropian-geometry gizmo
+  meshes, rendered as unlit overlay parts — `ecosystem.md` §1) for viewport
+  manipulation of probes/slices and manual design tweaks; extend it (or wrap
+  it) for per-object handle registration, and add drag-commit → undoable
+  simulator commands around it. Gizmo editing is 3D-only; it does not live in
+  spatial-ui (whose 2D gizmo stack was removed).
 
 Required-spatial-ui-work-tracking: none blocking for v1 workbench; the only
 hard dependency is on render's §3 items (which spatial-ui's own UI rendering
