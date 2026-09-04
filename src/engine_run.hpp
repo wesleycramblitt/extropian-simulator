@@ -4,10 +4,10 @@
 // Single source of truth for SteamEngineSystem, OptimizationSystem's
 // engine-objective mode and engine_run_test. NOT installed (src/ include).
 // ─────────────────────────────────────────────────────────────────────
-#include <exd/physics/engine/engine_config.hpp>
-#include <exd/physics/engine/engine_result.hpp>
-#include <exd/physics/engine/engine_simulator.hpp>
-#include <exd/physics/model_status.hpp>
+#include <exd/engine/core/model_status.hpp>
+#include <exd/engine/presets/engine/engine_config.hpp>
+#include <exd/engine/presets/engine/engine_result.hpp>
+#include <exd/engine/presets/engine/engine_simulator.hpp>
 #include <exd/sim/components/engine.hpp>
 
 #include <chrono>
@@ -17,11 +17,11 @@
 namespace exd::sim::impl {
 
 /// Map the ECS engine design into the physics EngineConfig (steam cycle).
-inline exd::physics::engine::EngineConfig make_engine_config(
+inline exd::engine::presets::engine::EngineConfig make_engine_config(
     const EngineSpec& e, double initial_omega = 50.0,
     uint64_t max_steps = 20000) {
-    using namespace exd::physics;
-    engine::EngineConfig cfg;
+    namespace engine = exd::engine::presets::engine;
+        engine::EngineConfig cfg;
 
     cfg.geometry.crank_radius     = e.crank_radius;
     cfg.geometry.rod_length       = e.rod_length;
@@ -80,10 +80,10 @@ inline EngineRunOutcome run_engine_eval(const EngineSpec& e) {
     const double t0 = duration<double>(
         steady_clock::now().time_since_epoch()).count();
 
-    exd::physics::ModelStatus status;
+    exd::engine::ModelStatus status;
     const auto cfg = make_engine_config(e);
-    const exd::physics::engine::EngineSimResult res =
-        exd::physics::engine::simulate_engine(cfg, status);
+    const exd::engine::presets::engine::EngineSimResult res =
+        exd::engine::presets::engine::simulate_engine(cfg, status);
     outcome.wall_seconds = duration<double>(
         steady_clock::now().time_since_epoch()).count() - t0;
 

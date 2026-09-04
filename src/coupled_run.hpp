@@ -16,10 +16,11 @@
 //     NOT make_generator_curve(P, η, min_ω) — that formula blows up
 //     when min_ω « P/η and pins the rotor before spin-up)
 // ─────────────────────────────────────────────────────────────────────
-#include <exd/physics/fluid/fdm3/fdm3_result.hpp>
-#include <exd/physics/model_status.hpp>
-#include <exd/physics/turbine/coupled_turbine.hpp>
-#include <exd/physics/turbine/turbine_builder.hpp>
+#include <exd/engine/core/model_status.hpp>
+#include <exd/engine/physics/fluid/fdm3/fdm3_result.hpp>
+#include <exd/engine/physics/rigid_body/moment_model.hpp>
+#include <exd/engine/presets/turbine/coupled_turbine.hpp>
+#include <exd/engine/presets/turbine/turbine_builder.hpp>
 #include <exd/sim/components/turbine.hpp>
 
 #include <algorithm>
@@ -30,11 +31,12 @@
 namespace exd::sim::impl {
 
 /// Build the coupled-driver configuration from an ECS design + run params.
-inline exd::physics::turbine::CoupledTurbineConfig make_coupled_run_config(
+inline exd::engine::presets::turbine::CoupledTurbineConfig make_coupled_run_config(
     const TurbineSpec& spec, double wind_speed, int n_per_axis, int max_steps,
     double ramp_time_s, double radius_margin, double wake_length_radii,
-    exd::physics::ModelStatus& status) {
-    using namespace exd::physics;
+    exd::engine::ModelStatus& status) {
+    using namespace exd::engine;
+    namespace turbine = exd::engine::presets::turbine;
     using turbine::CoupledTurbineConfig;
 
     turbine::TurbineBuilderConfig b;
@@ -51,7 +53,7 @@ inline exd::physics::turbine::CoupledTurbineConfig make_coupled_run_config(
     b.duct_length      = b.leading_edge_z + chord + 1.0;
     b.shroud_radius    = 0.0;
     b.default_airfoil  = "naca0012";
-    const geometry::TurbineDefinition def = turbine::make_turbine_definition(b, status);
+    const exd::geometry::TurbineDefinition def = turbine::make_turbine_definition(b, status);
     if (!status.ok) return {};
 
     CoupledTurbineConfig cc;
@@ -66,7 +68,7 @@ inline exd::physics::turbine::CoupledTurbineConfig make_coupled_run_config(
     cc.turbine = def;
     cc.element_count = 8;
     cc.rotor_inertia = 1200.0;
-    mechanics::CurveMomentConfig generator;
+    exd::engine::physics::rigid_body::CurveMomentConfig generator;
     generator.omega_pts  = {0.0, 2.0, 8.0, 12.0, 30.0};
     generator.torque_pts = {0.0, 40.0, 368.0, 245.0, 98.0};
     cc.generator = generator;
@@ -104,13 +106,13 @@ inline CoupledRunOutcome run_coupled_eval(const TurbineSpec& spec, double wind_s
                                    int n_per_axis, int max_steps,
                                    double ramp_time_s, double radius_margin,
                                    double wake_length_radii,
-                                   exd::physics::fluid::fdm3::FDM3FieldData* out_field) {
+                                   exd::engine::physics::fluid::fdm3::FDM3FieldData* out_field) {
     using namespace std::chrono;
     CoupledRunOutcome outcome;
     const double t0 = duration<double>(
         steady_clock::now().time_since_epoch()).count();
 
-    exd::physics::ModelStatus status;
+    exd::engine::ModelStatus status;
     auto cc = make_coupled_run_config(spec, wind_speed, n_per_axis, max_steps,
                                       ramp_time_s, radius_margin,
                                       wake_length_radii, status);
@@ -119,8 +121,8 @@ inline CoupledRunOutcome run_coupled_eval(const TurbineSpec& spec, double wind_s
         return outcome;
     }
 
-    const exd::physics::turbine::CoupledTurbineResult res =
-        exd::physics::turbine::run_coupled_turbine(cc, status);
+    const exd::engine::presets::turbine::CoupledTurbineResult res =
+        exd::engine::presets::turbine::run_coupled_turbine(cc, status);
     outcome.wall_seconds = duration<double>(
         steady_clock::now().time_since_epoch()).count() - t0;
 

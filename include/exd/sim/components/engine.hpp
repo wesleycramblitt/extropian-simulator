@@ -4,7 +4,7 @@
 //
 // The "SteamEngine" entity is owned by SteamEngineSystem. The panel edits
 // EngineSpec (geometry + steam cycle); the system runs the 0D Rankine-lite
-// slider-crank simulator (exd::physics::engine) in the background and
+// slider-crank simulator (exd::engine::presets::engine) in the background and
 // publishes EngineRunState (stats) and IndicatorRecord (pressure / volume
 // samples for the indicator diagram, fixed-size so it stays a POD
 // component). OptimizationSystem (engine mode) also writes EngineSpec.
@@ -18,7 +18,7 @@ namespace exd::sim {
 /// Writers: SteamEngineSystem panel, OptimizationSystem (engine mode).
 /// Readers: SteamEngineSystem.
 struct EngineSpec {
-    // ── Mechanism geometry (same units as exd::physics::engine) ──
+    // ── Mechanism geometry (same units as exd::engine::presets::engine) ──
     float crank_radius   = 0.05f;    // m  (> 0)
     float rod_length     = 0.20f;    // m  (> crank_radius)
     float bore           = 0.086f;   // m  cylinder diameter (> 0)

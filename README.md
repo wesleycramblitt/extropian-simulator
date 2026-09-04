@@ -1,49 +1,65 @@
 # Extropian Simulator
 
-**Real-time multiphysics inverse design and optimization engine.**
+An **interactive simulation workspace**: direct, real-time manipulation of a
+parametric design in a 3D view, where geometry edits flow into running
+simulations and results stream back into a spatial (in-world) dashboard —
+without ever leaving the scene.
 
-Type a prompt like *"Design a 3 MW wind turbine with low noise, 60 m blades,
-class IB loads"* — the engine generates a parametric CAD model (or imports
-yours), auto-configures fitness functions, meshing, boundary conditions and
-solvers, runs aggressive optimization loops with custom GPU-first solvers,
-and finishes with a live, interactive post-optimization run where wind speed,
-turbulence, yaw and rotor speed can be changed in real time.
+The workspace experience is built on two ecosystem pieces that are still
+early: `extropian-spatial-ui` (the document/layout pipeline that turns
+domain data into spatial UI) and the interactive editing path in
+`extropian-geometry`. **Until those mature, this repo ships the foundation
+for that experience:**
 
-## Modes
+1. **`exd::sim`** — the ECS-based simulation systems library
+   (`include/exd/sim/`, `src/`): turbine / steam-engine / solver-run /
+   shape-workshop systems, coupled-CFD and 0D-ephemeral objective models,
+   dashboard feed, all governed by the standards in [`AGENTS.md`](AGENTS.md).
+2. **Headless integration tests** — deterministic verification of the
+   run-mapping recipes against the real solvers (`EXT_SIM_BUILD_TESTS`,
+   on by default, OFF when this repo is consumed as a FetchContent
+   dependency).
 
-| Mode | Purpose |
-|------|---------|
-| **Design** | Prompt/spec intake, geometry generation or CAD import, review auto-configured study |
-| **Optimize** | Run optimization loops (CMA-ES / NSGA-II, multi-fidelity BEMT→LBM→refined) with live convergence |
-| **Live Run** | Real-time post-optimization simulation: adjustable wind, turbulence, yaw, TSR; streamlines, slices, iso-surfaces, probes, force/power plots |
-| **Export** | Verification package: STL/STEP geometry, VTK/CSV fields, study report |
+## Registration examples
 
-## Architecture
+The windowed demos that used to live here (how to compose `exd::sim`
+systems into a full app: window, render pipeline, ImGui panels, solver
+systems) **moved to [`extropian-playground`](https://github.com/wesleycramblitt/extropian-playground)**
+(`playground/demos/`), which also hosts the broader ecosystem experiment
+space. New examples and experiments belong there.
 
-Everything is ECS (`extropian-core`). Solver cores live in this repository
-(`src/physics/`: BEMT, GPU lattice-Boltzmann, structural beam, synthetic
-turbulence) — no external solver dependencies. Rendering flows through
-`extropian-render`; all UI comes from `extropian-spatial-ui`; post-processing
-logic is owned here.
+## Ecosystem
 
-See `docs/plan.md` (master plan), `docs/architecture.md`,
-`docs/solvers.md`, `docs/optimization.md`, `docs/postprocessing.md`,
-`docs/ecosystem.md`.
+```text
+extropian-core           ECS, math, config          extropian-physics      solver cores
+extropian-render         render pipeline, ImGui     extropian-geometry     parametric geometry
+extropian-app            window + frame loop        extropian-optimization CMA-ES / NSGA-II / NM
+extropian-viz            fields, colormaps, slices  extropian-spatial-ui   spatial dashboards (early)
+extropian-assets         media (fetched, never stored here)
+extropian-playground     demos + ecosystem experiments
+```
+
+Local sibling checkouts under `../` are picked up automatically by
+`build.sh` (no re-fetch from GitHub), except `extropian-assets`, which is
+always fetched from GitHub.
 
 ## Building
 
 ```bash
-./build.sh          # or: cmake -S . -B build -G Ninja && cmake --build build
-./run.sh
+./build.sh
+# headless tests (the shipped verification surface):
+./build/optimization_test   ./build/shape_workshop_test
+./build/solver_run_test     ./build/engine_run_test   ./build/dashboard_feed_test
 ```
-
-Local sibling checkouts (extropian-core/render/app/physics/spatial-ui) are
-picked up automatically by `build.sh` to avoid GitHub fetches.
 
 ## Status
 
-Early-stage: rendering prototype on the shared ECS/render stack; Phase 0–1 of
-`docs/plan.md` (foundations + compute substrate). FluidX3D is no longer used.
+- The `exd::sim` library and its recipes are exercised and deterministic
+  (coupled FDM3 runs, 0D engine cycles, dashboard feed).
+- The interactive workspace itself is **early-stage**: the spatial-ui
+  document pipeline and the interactive geometry editing path are not ready
+  yet. Until they are, expect the repo to ship library + tests, with
+  workspace UI work landing as those dependencies mature.
 
 ## License
 

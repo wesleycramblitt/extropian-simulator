@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 project(extropian-simulator VERSION 0.1.0 LANGUAGES C CXX
-    DESCRIPTION "Extropian Simulator: ECS-based simulation library + demos"
+    DESCRIPTION "Extropian Simulator: interactive simulation workspace (ECS library + headless tests)"
 )
 
 # Content-only repos (extropian-assets) are populated with
@@ -18,6 +18,10 @@ include(FetchContent)
 # extropian-core builds doctest-based unit tests by default; doctest 2.4.x
 # is incompatible with CMake >= 4.0, so disable the dependency's tests.
 set(EXT_CORE_BUILD_TESTS OFF CACHE BOOL "Build extropian-core tests" FORCE)
+
+# Consumers build library code, not dependency demo apps.
+set(EXD_RENDER_BUILD_DEMO OFF CACHE BOOL "Build extropian-render demo" FORCE)
+set(EXT_PHYSICS_BUILD_TESTS OFF CACHE BOOL "Build extropian-physics tests" FORCE)
 
 # ── Dependencies: fetch all Extropian libraries from GitHub ───
 # Libraries check `if(NOT TARGET exd::*)` internally, so local sibling
@@ -137,10 +141,10 @@ target_link_libraries(exd-sim PRIVATE
     exd::geometry      # mesh builders used in implementations only
 )
 
-# ── Demos ───────────────────────────────────────────────
-# One executable per registration example (see demos/README).
-add_subdirectory(demos)
+# ── Tests (headless; disabled when this repo is consumed as a dependency) ──
+option(EXT_SIM_BUILD_TESTS "Build exd::sim headless tests" ON)
 
+if(EXT_SIM_BUILD_TESTS)
 # Standalone integration test for the optimization library (has its own main()).
 add_executable(optimization_test src/optimization_test.cpp)
 target_link_libraries(optimization_test PRIVATE exd::optimization)
@@ -165,3 +169,4 @@ target_include_directories(dashboard_feed_test PRIVATE src include)
 add_executable(shape_workshop_test src/shape_workshop_test.cpp)
 target_link_libraries(shape_workshop_test PRIVATE exd::sim exd::geometry)
 target_include_directories(shape_workshop_test PRIVATE src include)
+endif() # EXT_SIM_BUILD_TESTS

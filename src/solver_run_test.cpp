@@ -11,7 +11,7 @@
 // ─────────────────────────────────────────────────────────────────────
 #include "coupled_run.hpp"
 
-#include <exd/physics/model_status.hpp>
+#include <exd/engine/physics/fluid/fdm3/fdm3_result.hpp>
 
 #include <cstdio>
 
@@ -24,7 +24,7 @@ int main() {
 
     // 1+2+3: full run with field
     {
-        exd::physics::fluid::fdm3::FDM3FieldData field;
+        exd::engine::physics::fluid::fdm3::FDM3FieldData field;
         auto r1 = exd::sim::impl::run_coupled_eval(spec, wind, n, steps, 1.0, 1.8, 3.0, &field);
         if (!r1.valid) {
             std::printf("FAIL: run invalid: %s\n", r1.error.c_str());

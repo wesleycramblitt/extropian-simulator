@@ -1,69 +1,69 @@
 # AGENTS.md — extropian-simulator
 
 Guide for AI coding agents and human contributors working in this repository.
-**These standards are binding**: contributions that violate them will be rejected.
+**These standards are binding**: contributions that violate them will be
+rejected.
 
 ## What this repo is
 
-The **`exd::sim` library** (ECS-based simulation systems) plus **demos** that show
-researchers how to compose systems into applications. The product model: researchers
-build their own apps against this library, registering systems into an ECS
-`SystemGraph` — "plug and play" by manipulating the ECS. The demo executables are
-the copyable templates for that. Longer-term product vision: `docs/architecture.md`.
+The **`exd::sim` library** (ECS-based simulation systems) and the **product
+direction** of this repository: an *interactive simulation workspace* —
+direct, real-time manipulation of a parametric design in a 3D view where
+geometry edits flow into running simulations and results stream back into a
+spatial (in-world) dashboard, without leaving the scene.
+
+**Current state:** the workspace UI/UX is the goal; its two load-bearing
+ecosystem pieces are not ready yet (`extropian-spatial-ui` document/layout
+pipeline and the interactive `extropian-geometry` editing path). Until they
+mature, this repo ships exactly two things:
+
+1. the `exd::sim` simulation library (`include/exd/sim/`, `src/`), and
+2. headless integration tests (`EXT_SIM_BUILD_TESTS`, on by default, OFF
+   when this repo is consumed as a FetchContent dependency).
+
+The demo executables that used to live here (registration examples for
+composing sim systems into apps) **moved to `extropian-playground`**
+(`playground/demos/`, built on the `DemoApp` host shell at
+`playground/demos/common/`). New registration examples and ecosystem
+experiments belong there, not here.
 
 ```
 include/exd/sim/           public library headers (exd::sim namespace)
 include/exd/sim/components/  ECS components (plain data structs)
-src/                       exd::sim implementation (.cpp files)
-demos/common/              DemoApp host shell (window + render pipeline + ImGui)
-demos/<name>/              one demo executable per registration example
+src/                       exd::sim implementation (.cpp files) + headless tests
 ```
 
-**No assets live in this repo.** Media (cubemaps, meshes, fonts, HDRIs, …) lives in
-`extropian-assets` and is fetched from GitHub at configure time
-(`FetchContent`), then copied next to each demo binary at build time.
-Never add asset directories here — add them to `extropian-assets` and to the
-`EXD_SIM_DEMO_ASSET_DIRS` list in `demos/CMakeLists.txt`.
+**No assets live in this repo.** Media (cubemaps, meshes, fonts, HDRIs, …)
+lives in `extropian-assets` and is fetched from GitHub at configure time
+(`FetchContent`). Never add asset directories here.
 
-Build: `./build.sh` → binaries in `build/`:
-- `build/extropian-sim-shape-workshop`  — DEFAULT demo: parametric primitive
-  gallery (2D + 3D shapes from extropian-geometry recipes) with live
-  parameter control and 3D gizmo editing (the minimal copyable template)
-- `build/extropian-sim-camera-modes`    — unified mobile camera: FPS / orbit /
-  ground-walk / orthographic-2D editing + runtime FOV
-- `build/extropian-sim-optimize`        — analytic-objective optimization
-  reference
-- `build/extropian-sim-turbine-solver`  — real meshing + FDM3 solver run +
-  viz + coupled-CFD optimization
-- `build/extropian-sim-steam-engine`    — steam engine meshing + 0D engine
-  solver + optimization + indicator dashboards
-- `build/optimization_test`, `build/shape_workshop_test`, `build/solver_run_test`,
-  `build/engine_run_test`, `build/dashboard_feed_test` — headless CLI tests
-
-Run: `./run.sh [demo]` (default: shape-workshop). `Z` toggles fly camera / UI
-mode. In the shape-workshop demo, `1/2/3` switch the 3D gizmo mode.
+Build: `./build.sh` → `build/libexd-sim.a` + test binaries in `build/`:
+`optimization_test`, `shape_workshop_test`, `solver_run_test`,
+`engine_run_test`, `dashboard_feed_test`.
 
 ## Ecosystem ownership (where code belongs)
 
-This repo is application-layer *simulation systems and demos only*. Use the
-other extropian repos for their purposes and do not reimplement them here:
+This repo is application-layer *simulation systems only*. Use the other
+extropian repos for their purposes and do not reimplement them here:
 
 | Concern | Repo |
 |---|---|
-| Rendering, graphics context, render systems, components, ImGui host; camera control (`CameraModeSystem` + `CameraModeController`: FPS/orbit/walk/ortho-2D) and the 3D scene tooling path (`PickerSystem`, `SelectionSystem`, `Gizmo3DSystem` — 3D gizmo interaction on geometry gizmo meshes) | `extropian-render` |
+| Rendering, graphics context, render systems, components, ImGui host; camera control (`CameraModeSystem` + `CameraModeController`: FPS/orbit/walk/ortho-2D) and the 3D scene tooling path (`PickerSystem`, `SelectionSystem` — gizmo3d is currently being reworked in extropian-render) | `extropian-render` |
 | Assets / media (cubemaps, meshes, fonts, hdri, …) | `extropian-assets` |
-| Physics solvers, solver plugin interface, fields/BCs | `extropian-physics` |
+| Physics solvers, solver plugin interface, fields/BCs (`exd::engine::…` — note: the public API is `exd/engine/…` headers, NOT the legacy `exd/physics/…` paths) | `extropian-physics` |
 | Geometry: turbine blades, hubs, primitives, mesh ops, and the gizmo MESH generators (translate/rotate/scale + deform families in `gizmos.hpp` — the single gizmo geometry source). Machines are exposed as `exd::geometry::Assembly` of named, patched `Part`s (the BC contract for solver systems); consume `generate_turbine_assembly()` / `flatten()` | `extropian-geometry` |
 | Optimization: CMA-ES, NSGA-II, Nelder-Mead, … | `extropian-optimization` |
 | Visualization: field data, colormaps, slices, iso-surfaces, streamlines, particles | `extropian-viz` |
-| Spatial UI: layout engine, widget/chart mesh generators, VisualDocument → ECS pipeline (dashboards) | `extropian-spatial-ui` |
+| Spatial UI: layout engine, widget/chart mesh generators, VisualDocument → ECS pipeline (dashboards) — the future workspace UI layer | `extropian-spatial-ui` |
 | ECS core, math, config, window state | `extropian-core` |
 | Application shell (SDL3/OpenGL window + loop) | `extropian-app` |
+| **Demos + ecosystem experiments (incl. the migrated exd::sim demos)** | **`extropian-playground`** |
 
-The exd libraries (except `extropian-assets`; including `extropian-viz`) are sibling repos fetched via
-FetchContent; `build.sh` overrides them with **local checkouts** when present
-under `../`. `extropian-assets` is the exception: it is always fetched from
-GitHub (content-only repo, no local-sibling override).
+The exd libraries (except `extropian-assets`; including `extropian-viz`) are
+sibling repos fetched via FetchContent; `build.sh` overrides them with
+**local checkouts** when present under `../`. `extropian-assets` is the
+exception: it is always fetched from GitHub (content-only repo, no
+local-sibling override).
 
 ## ECS standards (MUST follow)
 
@@ -107,11 +107,12 @@ GitHub (content-only repo, no local-sibling override).
 - Sim systems register in `SystemPhase::Simulation`. Within that phase, order
   is load-bearing: e.g. `OptimizationSystem` must be added *before*
   `TurbineSystem` so it writes `TurbineSpec` before the turbine consumes it.
-- Demo apps register sim systems in `DemoApp::register_sim_systems(graph)`.
-  The render pipeline is owned by the host shell — do not reorder it.
+- The render pipeline is owned by the host shell — do not reorder it.
   Scene tooling (PickerSystem / SelectionSystem / Gizmo3DSystem / GridSystem)
-  is registered by the shape demos as adapters; pointer glue lives in the
-  demo's `on_update`, following the extropian-render demo pattern.
+  is registered by the demos as adapters; pointer glue lives in the demo's
+  `on_update`, following the extropian-render demo pattern. The registration
+  examples now live in `extropian-playground/playground/demos/` (host shell:
+  `playground/demos/common/`).
 - The physics demos also register the spatial-ui dashboard pipeline in the
   same hook (composer pattern): `scene_renderer` Font/Size/Layout/ViewportFit
   (Structural/Layout) → Mesh/Relation/RenderOrder/ScreenWidget/Camera
@@ -163,10 +164,11 @@ shared recipes in `src/coupled_run.hpp` / `src/engine_run.hpp`
    `ISystem` subclass, `ensure_entities` pattern, inputs via views, outputs
    via registry writes, optional self-registered panel.
 3. Add the `.cpp` to the `exd-sim` target in `CMakeLists.txt`.
-4. Add a demo in `demos/<name>/` (new directory + `main.cpp` subclassing
-   `DemoApp`, registering the system; see `demos/optimization` for the
-   minimal shape), and add the executable + asset-copy entry in
-   `demos/CMakeLists.txt`.
+4. Add a registration example in `extropian-playground/playground/demos/`
+   (new directory + `main.cpp` subclassing `DemoApp`, registering the
+   system; see `playground/demos/optimization` for the minimal shape), and
+   add the executable + asset-copy entry in
+   `playground/demos/CMakeLists.txt`.
 5. Update the component ownership map above.
 
 ## Conventions
@@ -178,18 +180,30 @@ shared recipes in `src/coupled_run.hpp` / `src/engine_run.hpp`
   `[DemoApp]`) — consistent with the existing codebase.
 - Pure physics/numerics go in anonymous namespaces inside `.cpp` files so they
   stay testable without ECS/GPU (see `src/optimization_system.cpp`).
+- **Physics API note:** `extropian-physics` exposes its headers under
+  `exd/engine/...` (`exd::engine::presets::engine`, `exd::engine::presets::turbine`,
+  `exd::engine::core::ModelStatus`, ...). The legacy `exd/physics/...` paths
+  are gone — do not reintroduce them.
 
 ## Testing
 
+- Headless tests in `src/*_test.cpp`, built when `EXT_SIM_BUILD_TESTS` is ON
+  (the default; OFF when consumed as a dependency).
 - `optimization_test` reproduces the objective standalone (links
-  `exd::optimization` only). Keep pure logic extracted from systems so it can
-  be tested headlessly.
-- After changes: `./build.sh`, then run both demos briefly and `./build/optimization_test`.
+  `exd::optimization` only). Keep pure logic extracted from systems so it
+  can be tested headlessly.
+- After changes: `./build.sh`, then run the headless tests
+  (`./build/optimization_test`, `shape_workshop_test`, `solver_run_test`,
+  `engine_run_test`, `dashboard_feed_test`).
 
 ## Touch rules
 
 - **Do not** reintroduce cross-system raw pointers or setter-based wiring —
   including in demo code, which is the documented teaching surface.
 - **Do not** move sim systems into the host shell or into an app executable;
-  `exd::sim` is the library, demos are thin registration layers.
+  `exd::sim` is the library, demos are thin registration layers in
+  `extropian-playground`.
+- **Do not** add windowed demos here — they belong in `extropian-playground`;
+  this repo ships library + headless tests, and future UI/UX work toward the
+  interactive workspace.
 - When a change touches this guide, update it in the same commit.

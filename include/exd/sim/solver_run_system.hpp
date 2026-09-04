@@ -3,7 +3,7 @@
 // SolverRunSystem — one-shot real CFD run of the current turbine design.
 //
 // On "Solve" the system snapshots the current TurbineSpec + SolverRunConfig
-// and launches exd::physics::turbine::run_coupled_turbine() on a worker
+// and launches exd::engine::presets::turbine::run_coupled_turbine() on a worker
 // thread (the solver never touches the registry). While it runs the panel
 // shows progress; on completion the results land in the SolveRunState
 // component on the "SolverRun" entity and the flow field is visualized:
@@ -19,7 +19,7 @@
 // ─────────────────────────────────────────────────────────────────────
 #include <exd/ecs/registry.hpp>
 #include <exd/ecs/system.hpp>
-#include <exd/physics/fluid/fdm3/fdm3_result.hpp>
+#include <exd/engine/physics/fluid/fdm3/fdm3_result.hpp>
 #include <exd/render/graphics/graphics_context.hpp>
 #include <exd/sim/components/solver_run.hpp>
 #include <exd/sim/components/turbine.hpp>
@@ -52,7 +52,7 @@ public:
         int nx = 0, ny = 0, nz = 0, steps_taken = 0;
         double final_cp = 0.0, final_tsr = 0.0, power_w = 0.0, wall_seconds = 0.0;
         std::vector<double> power_w_trace;   // exchange cadence, for dashboards
-        exd::physics::fluid::fdm3::FDM3FieldData field;
+        exd::engine::physics::fluid::fdm3::FDM3FieldData field;
     };
 
 private:

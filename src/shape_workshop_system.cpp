@@ -194,8 +194,7 @@ void ShapeWorkshopSystem::draw_panel() {
     }
 
     if (ImGui::Button("Reset shape")) spec = starter_shape_spec(static_cast<int>(shapes_.size()) % 8);
-    ImGui::TextWrapped("Click a shape in the 3D view to select it; 1/2/3 = "
-                       "translate / rotate / scale gizmo.");
+    ImGui::TextWrapped("Click a shape in the 3D view to select it.");
 }
 
 } // namespace exd::sim

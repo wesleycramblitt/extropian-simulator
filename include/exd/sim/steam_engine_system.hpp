@@ -4,7 +4,7 @@
 //
 //   • mesh: parametric exd::geometry::generate_steam_engine() regenerated
 //     per crank angle (dirty-check throttled, TurbineSystem pattern)
-//   • physics: exd::physics::engine::simulate_engine() (Rankine-lite)
+//   • physics: exd::engine::presets::engine::simulate_engine() (Rankine-lite)
 //     on a worker thread; results → EngineRunState + IndicatorRecord
 //   • animation: crank advances at the last run's mean ω (scaled) or a
 //     fixed idle pace; the mesh rebuilds when the angle crosses a step

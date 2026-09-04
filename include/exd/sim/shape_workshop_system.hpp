@@ -11,7 +11,7 @@
 // technique so the recipes' baked vertex colors show.
 //
 // Render-side editing (move/rotate/scale) is driven by the demo through
-// exd::render::PickerSystem/SelectionSystem/Gizmo3DSystem — this system
+// exd::render::PickerSystem/SelectionSystem — this system
 // owns shape *parameters*, not scene editing.
 // ─────────────────────────────────────────────────────────────────────
 #include <exd/ecs/registry.hpp>

@@ -50,10 +50,11 @@ double wall_time_seconds() {
 /// Map the ECS turbine design + run config into the physics driver config.
 /// Pure function (no registry, no render) so the headless test can mirror it.
 /// Mirrored by solver_run_test.cpp — keep in sync.
-exd::physics::turbine::CoupledTurbineConfig make_run_config(
+exd::engine::presets::turbine::CoupledTurbineConfig make_run_config(
     const TurbineSpec& spec, const SolverRunConfig& cfg,
-    exd::physics::ModelStatus& status) {
-    using namespace exd::physics;
+    exd::engine::ModelStatus& status) {
+    using namespace exd::engine;
+    namespace turbine = exd::engine::presets::turbine;
     using turbine::CoupledTurbineConfig;
 
     // ── Rotor definition from the ECS design ─────────────────────────
@@ -79,7 +80,7 @@ exd::physics::turbine::CoupledTurbineConfig make_run_config(
     b.duct_length      = b.leading_edge_z + chord + 1.0; // validation margin
     b.shroud_radius    = 0.0;                            // open rotor
     b.default_airfoil  = "naca0012";
-    const geometry::TurbineDefinition def = turbine::make_turbine_definition(b, status);
+    const exd::geometry::TurbineDefinition def = turbine::make_turbine_definition(b, status);
     if (!status.ok) return {};
 
     // ── Grid: box centered on the rotor's world position ────────────
@@ -106,7 +107,7 @@ exd::physics::turbine::CoupledTurbineConfig make_run_config(
     // NOTE: make_generator_curve(P, η, min_omega) is NOT used here — it sizes
     // P/(η·min_omega), which blows up for min_omega « P/η and pins the rotor
     // at the low-omega clamp (measured: rotor stalled at negative ω, Cp < 0).
-    exd::physics::mechanics::CurveMomentConfig generator;
+    exd::engine::physics::rigid_body::CurveMomentConfig generator;
     generator.omega_pts = {0.0, 2.0, 8.0, 12.0, 30.0};
     generator.torque_pts = {0.0, 40.0, 368.0, 245.0, 98.0};
     cc.generator = generator;
@@ -145,15 +146,15 @@ std::unique_ptr<SolverRunSystem::RunResult> run_coupled_worker(
     auto payload = std::make_unique<SolverRunSystem::RunResult>();
     const double t0 = wall_time_seconds();
 
-    exd::physics::ModelStatus status;
+    exd::engine::ModelStatus status;
     auto cc = make_run_config(spec, cfg, status);
     if (!status.ok) {
         payload->error = status.error.empty() ? "invalid run configuration" : status.error;
         return payload;
     }
 
-    const exd::physics::turbine::CoupledTurbineResult res =
-        exd::physics::turbine::run_coupled_turbine(cc, status);
+    const exd::engine::presets::turbine::CoupledTurbineResult res =
+        exd::engine::presets::turbine::run_coupled_turbine(cc, status);
     payload->wall_seconds = wall_time_seconds() - t0;
 
     if (!status.ok || !res.valid) {
@@ -275,7 +276,7 @@ void SolverRunSystem::solve() {
         const SolverRunConfig run_cfg = cfg;
         future_ = std::async(std::launch::async, [design, run_cfg] {
             auto payload = std::make_unique<RunResult>();
-            exd::physics::fluid::fdm3::FDM3FieldData field;
+            exd::engine::physics::fluid::fdm3::FDM3FieldData field;
             const impl::CoupledRunOutcome outcome =
                 impl::run_coupled_eval(design, run_cfg.wind_speed, run_cfg.n_per_axis,
                                        run_cfg.max_steps, run_cfg.ramp_time_s,
@@ -375,7 +376,7 @@ void SolverRunSystem::poll_worker(ecs::Registry& registry) {
 void SolverRunSystem::publish_viz(ecs::Registry& registry) {
     if (!result_ || !result_->valid || result_->field.u.empty()) return;
     const SolverRunConfig& cfg = registry.get<SolverRunConfig>(run_);
-    const exd::physics::fluid::fdm3::FDM3FieldData& f = result_->field;
+    const exd::engine::physics::fluid::fdm3::FDM3FieldData& f = result_->field;
 
     // ── Uniform grid + fields from the solver's cell-centered arrays ──
     exd::viz::UniformGrid grid;
