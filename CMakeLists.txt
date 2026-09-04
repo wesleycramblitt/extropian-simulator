@@ -141,6 +141,15 @@ target_link_libraries(exd-sim PRIVATE
     exd::geometry      # mesh builders used in implementations only
 )
 
+# ── The interactive workspace app (the product entry point) ─────────
+# Stubbed for now: boots the workspace UI/UX with the ECS seeded with
+# placeholder domain state. Disabled when this repo is consumed as a
+# dependency.
+option(EXT_SIM_BUILD_WORKSPACE "Build the interactive workspace app" ON)
+if(EXT_SIM_BUILD_WORKSPACE)
+    add_subdirectory(workspace)
+endif()
+
 # ── Tests (headless; disabled when this repo is consumed as a dependency) ──
 option(EXT_SIM_BUILD_TESTS "Build exd::sim headless tests" ON)
 

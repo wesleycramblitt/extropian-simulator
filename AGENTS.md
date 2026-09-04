@@ -12,22 +12,25 @@ direct, real-time manipulation of a parametric design in a 3D view where
 geometry edits flow into running simulations and results stream back into a
 spatial (in-world) dashboard, without leaving the scene.
 
-**Current state:** the workspace UI/UX is the goal; its two load-bearing
-ecosystem pieces are not ready yet (`extropian-spatial-ui` document/layout
-pipeline and the interactive `extropian-geometry` editing path). Until they
-mature, this repo ships exactly two things:
+**Current state: a stub.** The workspace UI/UX's two load-bearing ecosystem
+pieces are not ready yet (`extropian-spatial-ui` document/layout pipeline
+and the interactive `extropian-geometry` editing path). Until they mature,
+this repo ships three things:
 
-1. the `exd::sim` simulation library (`include/exd/sim/`, `src/`), and
-2. headless integration tests (`EXT_SIM_BUILD_TESTS`, on by default, OFF
+1. the **workspace app** (`workspace/main.cpp`, the single entry point):
+   boots the UI/UX skeleton — window, render pipeline, ImGui host — with
+   the ECS seeded with *placeholder domain state* for CAD design, live
+   simulation, visualization, and optimization (all stubs),
+2. the `exd::sim` simulation library (`include/exd/sim/`, `src/`), and
+3. headless integration tests (`EXT_SIM_BUILD_TESTS`, on by default, OFF
    when this repo is consumed as a FetchContent dependency).
 
-The demo executables that used to live here (registration examples for
-composing sim systems into apps) **moved to `extropian-playground`**
-(`playground/demos/`, built on the `DemoApp` host shell at
-`playground/demos/common/`). New registration examples and ecosystem
-experiments belong there, not here.
+The old registration demos were removed — there is exactly **one
+executable** here. Ecosystem experiments belong in `extropian-playground`
+(`playground/hello/` is the template).
 
 ```
+workspace/                 the workspace app (main.cpp + CMakeLists) — STUB
 include/exd/sim/           public library headers (exd::sim namespace)
 include/exd/sim/components/  ECS components (plain data structs)
 src/                       exd::sim implementation (.cpp files) + headless tests
@@ -37,9 +40,10 @@ src/                       exd::sim implementation (.cpp files) + headless tests
 lives in `extropian-assets` and is fetched from GitHub at configure time
 (`FetchContent`). Never add asset directories here.
 
-Build: `./build.sh` → `build/libexd-sim.a` + test binaries in `build/`:
+Build: `./build.sh` → `build/extropian-simulator-workspace` (stubbed
+workspace) + `build/libexd-sim.a` + test binaries in `build/`:
 `optimization_test`, `shape_workshop_test`, `solver_run_test`,
-`engine_run_test`, `dashboard_feed_test`.
+`engine_run_test`, `dashboard_feed_test`. Run the workspace with `./run.sh`.
 
 ## Ecosystem ownership (where code belongs)
 
@@ -107,18 +111,15 @@ local-sibling override).
 - Sim systems register in `SystemPhase::Simulation`. Within that phase, order
   is load-bearing: e.g. `OptimizationSystem` must be added *before*
   `TurbineSystem` so it writes `TurbineSpec` before the turbine consumes it.
-- The render pipeline is owned by the host shell — do not reorder it.
-  Scene tooling (PickerSystem / SelectionSystem / Gizmo3DSystem / GridSystem)
-  is registered by the demos as adapters; pointer glue lives in the demo's
-  `on_update`, following the extropian-render demo pattern. The registration
-  examples now live in `extropian-playground/playground/demos/` (host shell:
-  `playground/demos/common/`).
-- The physics demos also register the spatial-ui dashboard pipeline in the
-  same hook (composer pattern): `scene_renderer` Font/Size/Layout/ViewportFit
-  (Structural/Layout) → Mesh/Relation/RenderOrder/ScreenWidget/Camera
-  (RenderPreparation) → `render::UIRenderSystem` (Render). The
-  `DashboardFeedSystem` (exd::sim) feeds domain components into the
-  document nodes; demos stay thin registration layers.
+- The render pipeline is owned by the workspace host shell — do not
+  reorder it. The workspace app (`workspace/main.cpp`) is the single
+  registration surface: systems register in `SystemPhase::Simulation` and
+  the host wires Input/RenderPreparation/Render. Future spatial-ui
+  dashboard registration follows the same hook (composer pattern):
+  `scene_renderer` Font/Size/Layout/ViewportFit (Structural/Layout) →
+  Mesh/Relation/RenderOrder/ScreenWidget/Camera (RenderPreparation) →
+  `render::UIRenderSystem` (Render); `DashboardFeedSystem` (exd::sim)
+  feeds domain components into document nodes.
 
 ## Component ownership map (current)
 
@@ -135,6 +136,18 @@ local-sibling override).
 | `ShapeWorkshopSpec` | each `"Shape.N"` | ShapeWorkshopSystem panel | ShapeWorkshopSystem |
 | `CameraModeController` | `"Camera"` | demo panels / hotkeys | CameraModeSystem |
 | `GizmoModeComponent` | `"Tools"` | demo hotkeys / panel | Gizmo3DSystem |
+
+## Workspace stub state (workspace/main.cpp — replace as systems land)
+
+| Stub component | Entity | Axis it stands in for |
+|---|---|---|
+| `CadDesignStub` | `"CadDesign"` | parametric CAD edits (extropian-geometry + editing path) |
+| `LiveSimulationStub` | `"LiveSimulation"` | real-time solver runs (exd::sim + physics workers) |
+| `VisualizationStub` | `"Visualization"` | field/streamline/iso views (extropian-viz) |
+| `OptimizationStub` | `"OptimizationStudy"` | optimization loops (exd::opt) |
+
+The stubs are workspace-local PODs — not exd::sim components — until the
+corresponding systems land; then the real components replace them.
 
 ## Background-work threading contract
 
@@ -164,11 +177,10 @@ shared recipes in `src/coupled_run.hpp` / `src/engine_run.hpp`
    `ISystem` subclass, `ensure_entities` pattern, inputs via views, outputs
    via registry writes, optional self-registered panel.
 3. Add the `.cpp` to the `exd-sim` target in `CMakeLists.txt`.
-4. Add a registration example in `extropian-playground/playground/demos/`
-   (new directory + `main.cpp` subclassing `DemoApp`, registering the
-   system; see `playground/demos/optimization` for the minimal shape), and
-   add the executable + asset-copy entry in
-   `playground/demos/CMakeLists.txt`.
+4. Register the system in the workspace app (`workspace/main.cpp`,
+   `SystemPhase::Simulation`; the stub panel/entities show the pattern) or
+   in an experiment in `extropian-playground` (`playground/hello/` is the
+   template) while the system is still experimental.
 5. Update the component ownership map above.
 
 ## Conventions
@@ -203,7 +215,8 @@ shared recipes in `src/coupled_run.hpp` / `src/engine_run.hpp`
 - **Do not** move sim systems into the host shell or into an app executable;
   `exd::sim` is the library, demos are thin registration layers in
   `extropian-playground`.
-- **Do not** add windowed demos here — they belong in `extropian-playground`;
-  this repo ships library + headless tests, and future UI/UX work toward the
-  interactive workspace.
+- **Do not** add more windowed executables — `workspace/main.cpp` is the
+  one entry point. Keep workspace domain state stubbed until the
+  spatial-ui/geometry pipelines land; experiments belong in
+  `extropian-playground`.
 - When a change touches this guide, update it in the same commit.

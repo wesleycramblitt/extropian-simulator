@@ -1,65 +1,52 @@
 # Extropian Simulator
 
-An **interactive simulation workspace**: direct, real-time manipulation of a
-parametric design in a 3D view, where geometry edits flow into running
-simulations and results stream back into a spatial (in-world) dashboard —
-without ever leaving the scene.
+The **interactive simulation workspace**: a single app where a parametric
+CAD design is edited directly in a 3D view, real-time simulations run
+against it, results stream back into spatial (in-world) dashboards, and
+optimization loops drive the design — all without leaving the scene.
 
-The workspace experience is built on two ecosystem pieces that are still
-early: `extropian-spatial-ui` (the document/layout pipeline that turns
-domain data into spatial UI) and the interactive editing path in
-`extropian-geometry`. **Until those mature, this repo ships the foundation
-for that experience:**
+**For now this is a stub.** `./build/extropian-simulator-workspace`
+(one `main.cpp`, see `workspace/`) boots the workspace UI/UX — window,
+3D viewport, ImGui host — with the ECS seeded with placeholder domain
+state for the four axes (CAD design, live simulation, visualization,
+optimization). The real workspace layers depend on
+`extropian-spatial-ui` (spatial document/dashboard pipeline) and the
+interactive editing path in `extropian-geometry`, neither of which is
+ready yet; they will replace the stubs as they land.
 
-1. **`exd::sim`** — the ECS-based simulation systems library
-   (`include/exd/sim/`, `src/`): turbine / steam-engine / solver-run /
-   shape-workshop systems, coupled-CFD and 0D-ephemeral objective models,
-   dashboard feed, all governed by the standards in [`AGENTS.md`](AGENTS.md).
-2. **Headless integration tests** — deterministic verification of the
-   run-mapping recipes against the real solvers (`EXT_SIM_BUILD_TESTS`,
-   on by default, OFF when this repo is consumed as a FetchContent
-   dependency).
+## What's in the repo
 
-## Registration examples
+| Piece | Where | Status |
+|---|---|---|
+| Workspace app (stubbed) | `workspace/main.cpp` | boots UI/UX + seeded ECS |
+| `exd::sim` library | `include/exd/sim/`, `src/` | ECS simulation systems (turbine, steam engine, solver runs, shape recipes, dashboard feed) |
+| Headless tests | `src/*_test.cpp` | deterministic recipes: coupled FDM3, 0D engine, dashboard pipeline |
 
-The windowed demos that used to live here (how to compose `exd::sim`
-systems into a full app: window, render pipeline, ImGui panels, solver
-systems) **moved to [`extropian-playground`](https://github.com/wesleycramblitt/extropian-playground)**
-(`playground/demos/`), which also hosts the broader ecosystem experiment
-space. New examples and experiments belong there.
+The old registration demos were removed — the workspace app is now the
+single entry point. Experiments still live in
+[`extropian-playground`](https://github.com/wesleycramblitt/extropian-playground).
 
-## Ecosystem
-
-```text
-extropian-core           ECS, math, config          extropian-physics      solver cores
-extropian-render         render pipeline, ImGui     extropian-geometry     parametric geometry
-extropian-app            window + frame loop        extropian-optimization CMA-ES / NSGA-II / NM
-extropian-viz            fields, colormaps, slices  extropian-spatial-ui   spatial dashboards (early)
-extropian-assets         media (fetched, never stored here)
-extropian-playground     demos + ecosystem experiments
-```
-
-Local sibling checkouts under `../` are picked up automatically by
-`build.sh` (no re-fetch from GitHub), except `extropian-assets`, which is
-always fetched from GitHub.
-
-## Building
+## Building / running
 
 ```bash
-./build.sh
-# headless tests (the shipped verification surface):
+./build.sh          # library + tests + workspace app
+./run.sh            # launch the workspace (builds on demand)
+# headless tests:
 ./build/optimization_test   ./build/shape_workshop_test
 ./build/solver_run_test     ./build/engine_run_test   ./build/dashboard_feed_test
 ```
 
-## Status
+Local sibling checkouts under `../` are picked up automatically by
+`build.sh`; `extropian-assets` (media) is always fetched from GitHub.
 
-- The `exd::sim` library and its recipes are exercised and deterministic
-  (coupled FDM3 runs, 0D engine cycles, dashboard feed).
-- The interactive workspace itself is **early-stage**: the spatial-ui
-  document pipeline and the interactive geometry editing path are not ready
-  yet. Until they are, expect the repo to ship library + tests, with
-  workspace UI work landing as those dependencies mature.
+## Ecosystem
+
+`extropian-core` (ECS/math) · `extropian-render` (pipeline/ImGui) ·
+`extropian-app` (window) · `extropian-physics` (solvers) ·
+`extropian-geometry` (CAD recipes) · `extropian-optimization` ·
+`extropian-viz` (fields/colormaps) · `extropian-spatial-ui` (dashboards,
+early) · `extropian-playground` (experiments). Conventions and component
+ownership: [`AGENTS.md`](AGENTS.md).
 
 ## License
 
