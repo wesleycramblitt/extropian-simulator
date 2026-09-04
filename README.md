@@ -19,7 +19,7 @@ ready yet; they will replace the stubs as they land.
 | Piece | Where | Status |
 |---|---|---|
 | Workspace app (stubbed) | `workspace/main.cpp` | boots UI/UX + seeded ECS |
-| `exd::sim` library | `include/exd/sim/`, `src/` | ECS simulation systems (turbine, steam engine, solver runs, shape recipes, dashboard feed) |
+| `exd::sim` library | `include/exd/sim/`, `src/` | ECS simulation systems: coupled-CFD solver runs + a generic frame-batched optimization driver |
 | Headless tests | `src/*_test.cpp` | deterministic recipes: coupled FDM3, 0D engine, dashboard pipeline |
 
 The old registration demos were removed — the workspace app is now the
@@ -32,8 +32,7 @@ single entry point. Experiments still live in
 ./build.sh          # library + tests + workspace app
 ./run.sh            # launch the workspace (builds on demand)
 # headless tests:
-./build/optimization_test   ./build/shape_workshop_test
-./build/solver_run_test     ./build/engine_run_test   ./build/dashboard_feed_test
+./build/optimization_test   ./build/solver_run_test
 ```
 
 Local sibling checkouts under `../` are picked up automatically by

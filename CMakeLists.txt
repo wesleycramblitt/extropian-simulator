@@ -118,12 +118,8 @@ endif()
 # against <exd/sim/...> and register systems into an ECS SystemGraph;
 # see demos/ for copyable examples and AGENTS.md for the ECS standards.
 add_library(exd-sim STATIC
-    src/turbine_system.cpp
-    src/optimization_system.cpp
-    src/solver_run_system.cpp
-    src/steam_engine_system.cpp
-    src/dashboard_feed_system.cpp
-    src/shape_workshop_system.cpp
+    src/optimization_system.cpp   # generic optimizer driver (domain-agnostic)
+    src/solver_run_system.cpp     # coupled CFD run + flow visualization
 )
 add_library(exd::sim ALIAS exd-sim)
 
@@ -133,9 +129,8 @@ target_link_libraries(exd-sim PUBLIC
     exd::core          # ecs types appear in public headers
     exd::render        # GraphicsContext + render components in public headers
     exd::optimization  # exd::opt in public headers
-    exd::physics       # solver run / engine / BEM entry points (public headers)
+    exd::physics       # solver run entry points (public headers)
     exd::viz           # Field3D + slice/streamline/iso cores for visualizers
-    exd::scene_renderer # dashboard feed writes DocumentNodeComponent
 )
 target_link_libraries(exd-sim PRIVATE
     exd::geometry      # mesh builders used in implementations only
@@ -154,9 +149,10 @@ endif()
 option(EXT_SIM_BUILD_TESTS "Build exd::sim headless tests" ON)
 
 if(EXT_SIM_BUILD_TESTS)
-# Standalone integration test for the optimization library (has its own main()).
+# Headless test for the generic OptimizationSystem frame loop (own main()).
 add_executable(optimization_test src/optimization_test.cpp)
-target_link_libraries(optimization_test PRIVATE exd::optimization)
+target_link_libraries(optimization_test PRIVATE exd::sim)
+target_include_directories(optimization_test PRIVATE src include)
 
 # Standalone test for the SolverRunSystem run-mapping recipe: tiny coupled
 # FDM3 run must validate and be bit-for-bit deterministic (links physics only).
@@ -164,18 +160,4 @@ add_executable(solver_run_test src/solver_run_test.cpp)
 target_link_libraries(solver_run_test PRIVATE exd::physics)
 target_include_directories(solver_run_test PRIVATE src include)
 
-# Standalone test for the steam-engine run recipe (engine_run.hpp).
-add_executable(engine_run_test src/engine_run_test.cpp)
-target_link_libraries(engine_run_test PRIVATE exd::physics)
-target_include_directories(engine_run_test PRIVATE src include)
-
-# Headless test for the spatial-ui dashboard pipeline (feed → resolution).
-add_executable(dashboard_feed_test src/dashboard_feed_test.cpp)
-target_link_libraries(dashboard_feed_test PRIVATE exd::sim)
-target_include_directories(dashboard_feed_test PRIVATE src include)
-
-# Headless test for the shape-workshop recipe dispatch (spec → mesh).
-add_executable(shape_workshop_test src/shape_workshop_test.cpp)
-target_link_libraries(shape_workshop_test PRIVATE exd::sim exd::geometry)
-target_include_directories(shape_workshop_test PRIVATE src include)
 endif() # EXT_SIM_BUILD_TESTS

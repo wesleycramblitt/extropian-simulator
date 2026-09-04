@@ -1,76 +1,91 @@
-#include <iostream>
-#include <vector>
+// ─────────────────────────────────────────────────────────────────────
+// Headless test for the generic OptimizationSystem. Drives the embedded
+// frame loop (one batch per update) against a Rosenbrock objective over
+// [-5, 5]^2 and asserts the system converges near the known optimum
+// (a, b) = (1, 1) and publishes the results through FitnessRecord.
+// ─────────────────────────────────────────────────────────────────────
+#include <exd/sim/optimization_system.hpp>
+
+#include <exd/ecs/registry.hpp>
+#include <exd/ecs/view.hpp>
+
 #include <cmath>
-#include <exd/opt/opt.hpp>
-
-// A simple test of the optimization library
-// This mimics the CMA-ES test in the optimization repo using a rotor-like function
-
-using namespace exd::opt;
-
-// Simple 2D "rotor" function - a simple test case
-double rotor_function(const std::vector<double>& x) {
-    // A simplified representation of a simple turbine blade (with some variation)
-    double a = 0.5;
-    double b = 0.3;
-    double c = 0.2;
-    double d = 0.8;
-
-    double angle = 2 * M_PI * x[0];  // Angle from [0,1] 
-    double radius = 0.5 + 0.3 * std::sin(angle);  // Radius varies with angle
-    
-    // Simple function that has an optimum around (0.5, 0.5) in parametric space
-    double r = (radius - 0.7) * (radius - 0.7) + (x[1] - 0.5) * (x[1] - 0.5);
-    
-    // Add some noise to make it less trivial to optimize 
-    double noise = a * std::sin(b * angle) + c * std::cos(d * angle * M_PI);
-    
-    return r + 0.1 * noise;
-}
+#include <cstdio>
 
 int main() {
-    std::cout << "Testing extropian-optimization integration..." << std::endl;
-    std::cout << "Running CMA-ES on a simple rotor function (2D)..." << std::endl;
+    std::printf("Generic OptimizationSystem test: Rosenbrock frame loop...\n");
 
-    // Build the problem definition
-    Problem p;
-    p.variables.assign(2, Variable{});
-    
-    OptimizeOptions o;
-    o.max_evaluations = 400;
-    o.seed = 42;
-    o.n_threads = 1; // Use single-thread for simplicity
+    // Objective in ENGINEERING units (the system maps candidates for us).
+    exd::sim::OptimizationSystem sys(
+        [](const exd::opt::design& x) -> exd::opt::Evaluation {
+            const double a = x.size() > 0 ? x[0] : 0.0;
+            const double b = x.size() > 1 ? x[1] : 0.0;
+            const double f = (1.0 - a) * (1.0 - a)
+                           + 100.0 * (b - a * a) * (b - a * a);
+            return {.fitness = {f}};
+        });
 
-    auto objective = [](const design& x) {
-        return Evaluation{{rotor_function(x)}};
-    };
+    exd::ecs::Registry reg;
 
-    auto result = optimize(p, Algo::CMAES, objective, o);
-    
-    if (result.ok()) {
-        std::cout << "OK - Optimization successful!" << std::endl;
-        std::cout << "Best x: [";
-        for (size_t i = 0; i < result.best_x.size(); ++i) {
-            std::cout << result.best_x[i];
-            if (i < result.best_x.size() - 1)
-                std::cout << ", ";
-        }
-        std::cout << "]" << std::endl;
-        
-        std::cout << "Best fitness (function value): " << result.best_fitness[0] << std::endl;
-        std::cout << "Evaluations performed: " << result.evaluations << std::endl;
-        std::cout << "Generations: " << result.generations << std::endl;
-        
-        // Verify that it achieved a reasonable minimum (function value close to zero)
-        if (result.best_fitness[0] < 1e-2) {
-            std::cout << "SUCCESS: Function converged to acceptable local optimum." << std::endl;
-            return 0; // Success
-        } else {
-            std::cout << "WARNING: Function did not converge well - may require tuning." << std::endl;
-            return 1; // Failed to converge properly
-        }
-    } else {
-        std::cout << "FAILED: Optimization returned error state." << std::endl;
+    // 1. Bind the registry + create the study entity.
+    sys.update(reg, 1.0 / 60.0);
+
+    // 2. Configure the study: Nelder-Mead over [-5,5]^2, tight budget.
+    exd::ecs::Entity study = {};
+    reg.view<exd::sim::OptimizationConfig>().each(
+        [&](exd::ecs::Entity e, exd::sim::OptimizationConfig& cfg) {
+            study = e;
+            cfg.n_vars = 2;
+            cfg.lower[0] = -5.0f; cfg.upper[0] = 5.0f;
+            cfg.lower[1] = -5.0f; cfg.upper[1] = 5.0f;
+            cfg.algo = static_cast<int>(exd::opt::Algo::NelderMead);
+            cfg.max_evaluations = 500;
+        });
+    if (!reg.valid(study)) {
+        std::printf("FAIL: study entity not created\n");
         return 1;
     }
+
+    // 3. Run the frame loop to completion.
+    sys.start_optimization();
+    int frames = 0;
+    while (sys.is_running() && frames < 10000) {
+        sys.update(reg, 1.0 / 60.0);
+        ++frames;
+    }
+    sys.update(reg, 1.0 / 60.0);   // final frame: adopt the verdict
+
+    if (!sys.result().ok()) {
+        std::printf("FAIL: optimizer returned no result (%d frames)\n", frames);
+        return 1;
+    }
+
+    const double best_a = sys.result().best_x.size() > 0 ? sys.result().best_x[0] : 0.0;
+    const double best_b = sys.result().best_x.size() > 1 ? sys.result().best_x[1] : 0.0;
+    const double best_f = sys.result().best_fitness.empty()
+                              ? 1e9 : sys.result().best_fitness[0];
+    std::printf("  frames=%d best=(%.6f, %.6f) f=%.3e\n",
+                frames, best_a, best_b, best_f);
+
+    if (best_f > 1e-3 || std::fabs(best_a - 1.0) > 0.05 ||
+        std::fabs(best_b - 1.0) > 0.05) {
+        std::printf("FAIL: did not converge to Rosenbrock optimum\n");
+        return 1;
+    }
+
+    // 4. FitnessRecord must mirror the run's verdict + running=false.
+    bool record_ok = false;
+    reg.view<exd::sim::FitnessRecord>().each(
+        [&](exd::ecs::Entity, const exd::sim::FitnessRecord& rec) {
+            record_ok = !rec.running && rec.evaluations > 0 &&
+                        std::fabs(rec.best_fitness - best_f) < 1e-9;
+        });
+    if (!record_ok) {
+        std::printf("FAIL: FitnessRecord not published correctly\n");
+        return 1;
+    }
+
+    std::printf("OK: generic optimization converged + published "
+                "(f=%.3e, a=%.4f, b=%.4f)\n", best_f, best_a, best_b);
+    return 0;
 }

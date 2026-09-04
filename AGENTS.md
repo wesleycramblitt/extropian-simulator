@@ -42,8 +42,7 @@ lives in `extropian-assets` and is fetched from GitHub at configure time
 
 Build: `./build.sh` → `build/extropian-simulator-workspace` (stubbed
 workspace) + `build/libexd-sim.a` + test binaries in `build/`:
-`optimization_test`, `shape_workshop_test`, `solver_run_test`,
-`engine_run_test`, `dashboard_feed_test`. Run the workspace with `./run.sh`.
+`optimization_test`, `solver_run_test`. Run the workspace with `./run.sh`.
 
 ## Ecosystem ownership (where code belongs)
 
@@ -88,11 +87,11 @@ local-sibling override).
    members — it just is not a cross-system API.
 
 3. **Own your entities.** A system creates its entities lazily in
-   `ensure_entities(registry)` on the first `update()` (see `TurbineSystem`
-   for the canonical pattern). Panels are their own entities carrying
+   `ensure_entities(registry)` on the first `update()` (see
+   `SolverRunSystem` for the canonical pattern). Panels are their own entities carrying
    `render::ImGuiPanelComponent` — the ImGui host draws one window per such
    entity automatically. Entity names must be unique and descriptive
-   (`"Turbine"`, `"TurbinePanel"`, `"OptimizationStudy"`, `"OptimizationPanel"`).
+   (`"OptimizationStudy"`, `"OptimizationPanel"`, `"SolverRun"`, `"SolverRunPanel"`).
 
 4. **Registry is single-threaded.** It belongs to the app (main thread).
    Structural mutation (create/destroy/emplace/remove) during a `view().each()`
@@ -109,33 +108,26 @@ local-sibling override).
   **insertion order = execution order**) → `RenderPreparation`
   (cubemap/polygon/primitive) → `Render` (RenderSystem, then ImGuiSystem).
 - Sim systems register in `SystemPhase::Simulation`. Within that phase, order
-  is load-bearing: e.g. `OptimizationSystem` must be added *before*
-  `TurbineSystem` so it writes `TurbineSpec` before the turbine consumes it.
+  is load-bearing: a system that publishes a component another system
+  consumes must be added first (e.g. `OptimizationSystem` before
+  `SolverRunSystem` once optimization can write the solver's input domain).
 - The render pipeline is owned by the workspace host shell — do not
   reorder it. The workspace app (`workspace/main.cpp`) is the single
   registration surface: systems register in `SystemPhase::Simulation` and
-  the host wires Input/RenderPreparation/Render. Future spatial-ui
-  dashboard registration follows the same hook (composer pattern):
-  `scene_renderer` Font/Size/Layout/ViewportFit (Structural/Layout) →
-  Mesh/Relation/RenderOrder/ScreenWidget/Camera (RenderPreparation) →
-  `render::UIRenderSystem` (Render); `DashboardFeedSystem` (exd::sim)
-  feeds domain components into document nodes.
+  the host wires Input/RenderPreparation/Render. When the spatial-ui
+  dashboard pipeline lands, it registers through the same hook (composer
+  pattern, see extropian-spatial-ui demos).
 
 ## Component ownership map (current)
 
 | Component | Lives on | Written by | Read by |
 |---|---|---|---|
-| `TurbineSpec` | `"Turbine"` | TurbineSystem panel, OptimizationSystem | TurbineSystem |
+| `TurbineSpec` | `"Turbine"` | domain seeding (workspace/experiments; CAD editing path later) | SolverRunSystem |
 | `OptimizationConfig` | `"OptimizationStudy"` | OptimizationSystem panel | OptimizationSystem |
-| `FitnessRecord` | `"OptimizationStudy"` | OptimizationSystem | panels, dashboards |
+| `FitnessRecord` | `"OptimizationStudy"` | OptimizationSystem | panels, domain systems |
 | `SolverRunConfig` | `"SolverRun"` | SolverRunSystem panel | SolverRunSystem |
-| `SolveRunState` | `"SolverRun"` | SolverRunSystem | panels, dashboards |
-| `EngineSpec` | `"SteamEngine"` | SteamEngineSystem panel, OptimizationSystem (engine mode) | SteamEngineSystem |
-| `EngineRunState` | `"SteamEngine"` | SteamEngineSystem | panels, dashboards |
-| `IndicatorRecord` | `"SteamEngine"` | SteamEngineSystem | panels, spatial-ui dashboards |
-| `ShapeWorkshopSpec` | each `"Shape.N"` | ShapeWorkshopSystem panel | ShapeWorkshopSystem |
-| `CameraModeController` | `"Camera"` | demo panels / hotkeys | CameraModeSystem |
-| `GizmoModeComponent` | `"Tools"` | demo hotkeys / panel | Gizmo3DSystem |
+| `SolveRunState` | `"SolverRun"` | SolverRunSystem | panels |
+| `CameraModeController` | `"Camera"` | host app / hotkeys | CameraModeSystem |
 
 ## Workspace stub state (workspace/main.cpp — replace as systems land)
 
@@ -151,23 +143,25 @@ corresponding systems land; then the real components replace them.
 
 ## Background-work threading contract
 
-Background runs (`SolverRunSystem`, the coupled-CFD objective mode of
-`OptimizationSystem`, and `SteamEngineSystem`) execute their physics calls
-(`run_coupled_turbine()`, `simulate_engine()`) on a worker thread
-(`std::async`, one job at a time). The worker touches **no registry, no
-render, no ImGui** — it returns a heap payload through a `std::future`, and
-the main thread adopts it and writes components / uploads meshes. Poll with
-`future_.wait_for(0)`; never join-block in the frame loop.
+Background runs (`SolverRunSystem`) execute their physics calls
+(`run_coupled_turbine()`) on a worker thread (`std::async`, one job at a
+time). The worker touches **no registry, no render, no ImGui** — it returns
+a heap payload through a `std::future`, and the main thread adopts it and
+writes components / uploads meshes. Poll with `future_.wait_for(0)`; never
+join-block in the frame loop. A caller-provided optimization objective that
+is expensive should follow the same contract.
 
-## Objective models (OptimizationSystem)
+## OptimizationSystem is generic
 
-`OptimizationSystem` is constructed with an `ObjectiveModel`:
-`Analytic` (inline fast objective — the default demo), `CoupledCfd`
-(one short 12³ FDM3 coupled run per candidate, evaluated sequentially on a
-background worker, ~0.7 s each) or `EngineSim` (inline 0D steam-engine
-simulation, ~ms each). Candidate designs are always mapped through the
-shared recipes in `src/coupled_run.hpp` / `src/engine_run.hpp`
-(single source of truth, mirrored by `solver_run_test` / `engine_run_test`).
+`OptimizationSystem` takes its objective at construction
+(`std::function<Evaluation(const design&)>`, candidates in engineering
+units under `OptimizationConfig` bounds). It knows nothing about a specific
+domain — the domain that owns the variables maps `FitnessRecord` back into
+its own components. Evaluation cost is the caller's choice: cheap analytic
+objectives finish in one frame; expensive ones (e.g. the coupled-CFD run
+per candidate, see `src/coupled_run.hpp` — the single source of truth
+mirrored by `solver_run_test`) can be wrapped by the caller with a worker /
+cache. Never put domain logic into the optimization system.
 
 ## How to add a system (the researcher workflow this repo serves)
 
@@ -201,12 +195,12 @@ shared recipes in `src/coupled_run.hpp` / `src/engine_run.hpp`
 
 - Headless tests in `src/*_test.cpp`, built when `EXT_SIM_BUILD_TESTS` is ON
   (the default; OFF when consumed as a dependency).
-- `optimization_test` reproduces the objective standalone (links
-  `exd::optimization` only). Keep pure logic extracted from systems so it
-  can be tested headlessly.
+- `optimization_test` drives the generic OptimizationSystem frame loop
+  end-to-end (Rosenbrock convergence + FitnessRecord publication).
+- `solver_run_test` exercises the coupled-run recipe (`src/coupled_run.hpp`)
+  for validity + bit-for-bit determinism (links physics only).
 - After changes: `./build.sh`, then run the headless tests
-  (`./build/optimization_test`, `shape_workshop_test`, `solver_run_test`,
-  `engine_run_test`, `dashboard_feed_test`).
+  (`./build/optimization_test`, `solver_run_test`).
 
 ## Touch rules
 

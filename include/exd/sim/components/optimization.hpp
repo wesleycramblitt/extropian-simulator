@@ -1,43 +1,49 @@
 #pragma once
 
+#include <cstdint>
 #include <limits>
 // ─────────────────────────────────────────────────────────────────────
 // Optimization components — the study entity and design results.
 //
 // The optimization "study" is an ECS entity owned by OptimizationSystem.
 // The panel edits OptimizationConfig; the system publishes FitnessRecord
-// as results accumulate. OptimizationSystem drives the turbine design by
-// writing the TurbineSpec component on the turbine entity (see
-// components/turbine.hpp) — never through direct system references.
+// as results accumulate.
 //
-// Both structs are POD and satisfy the exd::ecs::Component concept
-// (std::numeric_limits keeps it trivially constructible/destructible).
+// OptimizationSystem is GENERIC: it optimizes a design vector over
+// engineering-space bounds using a caller-provided objective (injected at
+// construction — see optimization_system.hpp). Nothing in these
+// components references a specific domain (turbine, engine, ...); the
+// domain that owns the variables maps FitnessRecord back into its own
+// components when it wants to apply the found design.
+//
+// Both structs are POD and satisfy the exd::ecs::Component concept.
 // ─────────────────────────────────────────────────────────────────────
 
 namespace exd::sim {
-
-/// Live-editable environment + cost settings used by the objective.
-/// Writers: OptimizationSystem's panel.  Readers: OptimizationSystem.
-struct OptimizationConfig {
-    float wind_speed    = 10.0f;   // m/s  (typical onshore 5–25)
-    float viscosity     = 1.5e-5f; // m²/s (air at ~15°C)
-    float air_density   = 1.225f;  // kg/m³ (sea-level standard)
-    float hub_height    = 30.0f;   // m   (wind shear reference)
-    float cost_per_kg   = 1.0f;    // relative cost factor
-    float blade_density = 1800.0f; // kg/m³ (fiberglass/epoxy composite)
-};
 
 /// Number of design variables in the optimization study (fixed vector
 /// length so FitnessRecord stays POD).
 inline constexpr int kOptimizationDesignVars = 8;
 
-/// Published results of the CMA-ES study, written to the study entity.
-/// best_fitness / best_design are the ALL-TIME best across runs for the
-/// current environment configuration (monotonic — they never regress);
-/// generation / evaluations describe the most recent run.
-/// Writers: OptimizationSystem.  Readers: panels, post-processing systems.
+/// Panel-editable study definition: variables, algorithm, budget.
+/// Writers: OptimizationSystem's panel.  Readers: OptimizationSystem.
+struct OptimizationConfig {
+    /// Engineering-space bounds per variable (only the first `n_vars`
+    /// entries are active).
+    float lower[kOptimizationDesignVars] = {0.0f};
+    float upper[kOptimizationDesignVars] = {1.0f};
+    int   n_vars = 2;                 ///< active dims, 1..kOptimizationDesignVars
+    int   algo = 0;                   ///< exd::opt::Algo as int (0 = CMA-ES)
+    int   max_evaluations = 2000;     ///< per-run budget
+    std::uint64_t seed = 42;          ///< base seed; each run gets seed + run#
+};
+
+/// Published results of the study, written to the study entity. Best
+/// values describe the MOST RECENT run (best_fitness of +inf = no
+/// evaluated candidate yet). Values are in engineering units.
+/// Writers: OptimizationSystem.  Readers: panels, domain systems.
 struct FitnessRecord {
-    double best_fitness = std::numeric_limits<double>::infinity(); // (lower = better)
+    double best_fitness = std::numeric_limits<double>::infinity(); // lower = better
     float  best_design[kOptimizationDesignVars] = {0.0f};
     int    generation   = 0;
     int    evaluations  = 0;
